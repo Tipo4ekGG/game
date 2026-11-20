@@ -73,7 +73,7 @@ const ended = 'ПОПЫТКА ЗАВЕРШЕНА';
 const {Body, Collision} = Matter;
 
 {
-  const game = launch(oneCircle);
+  const game = launch({...oneCircle,lossAnimation:true});
   game.arm();
   const [body] = game.obstacles();
   Body.setPosition(body, {x: 505.2 + body.circleRadius, y: 300});
@@ -109,7 +109,7 @@ const {Body, Collision} = Matter;
 }
 
 {
-  const game = launch({...oneCircle,count:2,types:[0,2]});
+  const game = launch({...oneCircle,count:2,types:[0,2],lossAnimation:true});
   game.arm();
   const [circle,triangle] = game.obstacles();
   Body.setPosition(circle,{x:570,y:300});
@@ -136,18 +136,18 @@ const {Body, Collision} = Matter;
   assert.equal(game.get('time').textContent,time,'results must stay frozen while figures continue moving');
 }
 
-{
-  const game = launch(oneCircle, undefined, 1, undefined, true);
+for(const [setting,reducedMotion] of [[{},false],[{lossAnimation:false},false],[{lossAnimation:true},true]]){
+  const game = launch({...oneCircle,...setting}, undefined, 1, undefined, reducedMotion);
   game.arm();
   const [body] = game.obstacles();
   Body.setPosition(body, {x: 530, y: 300});
   game.clickArena(500, 300);
   game.get('canvas').dispatch('pointermove', {pointerType: 'mouse', clientX: 650, clientY: 300});
-  assert.equal(game.get('overlay').hidden, false, 'reduced motion must show the result immediately');
-  assert.equal(game.get('impact-preview').hidden, false, 'reduced motion must preserve contact information');
+  assert.equal(game.get('overlay').hidden, false, 'with loss effects disabled the result must appear immediately');
+  assert.equal(game.get('impact-preview').hidden, false, 'the contact information must be visible without effects');
   game.frame(10);
   game.frame(100);
-  assert.equal(body.position.x, 530, 'reduced motion must skip the blast');
+  assert.equal(body.position.x, 530, 'with loss effects disabled the arena must stay still');
 }
 
 {

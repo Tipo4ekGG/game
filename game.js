@@ -12,13 +12,13 @@
     $('action').onclick=()=>location.reload();
     return;
   }
-  const defaults={count:8,speed:1,size:1,types:[0,1,2,3],player:'cursor',cursorScale:.75,showHitbox:false,touchbar:false,progression:true};
+  const defaults={count:8,speed:1,size:1,types:[0,1,2,3],player:'cursor',cursorScale:.75,showHitbox:false,lossAnimation:false,touchbar:false,progression:true};
   const clamp=(value,min,max)=>Math.max(min,Math.min(max,value));
   const numberSetting=(value,fallback,min,max,step)=>Number.isFinite(Number(value))?clamp(Math.round(Number(value)/step)*step,min,max):fallback;
   function sanitize(raw) {
     if(!raw||typeof raw!=='object')raw={};
     const types=Array.isArray(raw.types)?[...new Set(raw.types.filter(v=>Number.isInteger(v)&&v>=0&&v<4))].sort():defaults.types.slice();
-    return {count:numberSetting(raw.count,8,1,30,1),speed:numberSetting(raw.speed,1,.25,3,.25),size:numberSetting(raw.size,1,.5,2,.25),types:types.length?types:defaults.types.slice(),player:raw.player==='dot'?'dot':'cursor',cursorScale:numberSetting(raw.cursorScale,.75,.5,3,.25),showHitbox:raw.showHitbox===true,touchbar:raw.touchbar===true,progression:raw.progression!==false};
+    return {count:numberSetting(raw.count,8,1,30,1),speed:numberSetting(raw.speed,1,.25,3,.25),size:numberSetting(raw.size,1,.5,2,.25),types:types.length?types:defaults.types.slice(),player:raw.player==='dot'?'dot':'cursor',cursorScale:numberSetting(raw.cursorScale,.75,.5,3,.25),showHitbox:raw.showHitbox===true,lossAnimation:raw.lossAnimation===true,touchbar:raw.touchbar===true,progression:raw.progression!==false};
   }
   let settings={...defaults,types:defaults.types.slice()};
   try {
@@ -201,6 +201,7 @@
     const parts={dot:'Точка задела',tip:'Кончик стрелки задел',tail:'Хвост стрелки задел',edge:'Край стрелки задел'};
     return `${parts[contact.part]} ${shapes[contact.body.gameType]}.`;
   }
+  function playsLossAnimation(){return settings.lossAnimation&&!reducedMotion;}
   function lose(contact) {
     if(state!=='running')return;
     const record=elapsed>best;
@@ -211,7 +212,7 @@
     state='impact';keys.clear();touchId=null;padPointer=null;padLast=null;mousePickup=false;warning=null;
     syncPlayerMode();touchpad.classList.remove('pressed');arena.classList.remove('active');arena.classList.add('impact');
     $('pause').disabled=true;$('settings-open').disabled=true;notice.textContent='';hud(true);
-    if(reducedMotion)finishImpact();
+    if(!playsLossAnimation())finishImpact();
     requestPaint();
   }
   function finishImpact(now=null) {
@@ -574,7 +575,7 @@
   }
   function isAnimating() {
     if(settingsDialog.open||document.hidden)return false;
-    return state==='running'||(!reducedMotion&&(state==='intro'||state==='over'));
+    return state==='running'||(state==='intro'&&!reducedMotion)||(state==='over'&&playsLossAnimation());
   }
   function frame(now) {
     paintPending=false;
@@ -699,6 +700,7 @@
     if(state==='running'||state==='armed')pause('Настрой поле и начни новую попытку или закрой настройки, чтобы продолжить.');
     $('setting-count').value=settings.count;$('setting-speed').value=settings.speed;$('setting-size').value=settings.size;
     $('setting-cursor-scale').value=settings.cursorScale;$('setting-hitbox').checked=settings.showHitbox;
+    $('setting-loss-animation').checked=settings.lossAnimation;
     $('setting-touchbar').checked=settings.touchbar;$('setting-progression').checked=settings.progression;settingsForm.elements.player.value=settings.player;
     settingsForm.querySelectorAll('[name="shape"]').forEach(box=>box.checked=settings.types.includes(Number(box.value)));
     $('settings-status').textContent='';updateForm();settingsDialog.showModal();
@@ -712,7 +714,12 @@
     event.preventDefault();
     const types=[...settingsForm.querySelectorAll('[name="shape"]:checked')].map(box=>Number(box.value));
     if(!types.length){$('settings-status').textContent='Выбери хотя бы одну фигуру.';return;}
-    settings=sanitize({count:$('setting-count').value,speed:$('setting-speed').value,size:$('setting-size').value,types,player:settingsForm.elements.player.value,cursorScale:$('setting-cursor-scale').value,showHitbox:$('setting-hitbox').checked,touchbar:$('setting-touchbar').checked,progression:$('setting-progression').checked});
+    settings=sanitize({
+      count:$('setting-count').value,speed:$('setting-speed').value,size:$('setting-size').value,types,
+      player:settingsForm.elements.player.value,cursorScale:$('setting-cursor-scale').value,
+      showHitbox:$('setting-hitbox').checked,lossAnimation:$('setting-loss-animation').checked,
+      touchbar:$('setting-touchbar').checked,progression:$('setting-progression').checked
+    });
     try {localStorage.setItem(SETTINGS_KEY,JSON.stringify(settings));}catch {}
     touchbar.hidden=!settings.touchbar;settingsDialog.close();state='intro';layout();arm();
   });

@@ -15,7 +15,7 @@
 <script defer src="./geometry.js?v=5"></script>
 <script defer src="./physics.js?v=4"></script>
 <script defer src="./input.js?v=4"></script>
-<script defer src="./game.js?v=7"></script>
+<script defer src="./game.js?v=8"></script>
 </head>
 <body>
 <main class="game">
@@ -73,6 +73,8 @@
 <label class="range-label" for="setting-cursor-scale">Масштаб области курсора <output id="cursor-scale-output" for="setting-cursor-scale">0.75×</output></label>
 <input id="setting-cursor-scale" name="cursorScale" type="range" min="0.5" max="3" step="0.25" value="0.75" aria-describedby="cursor-help">
 <label class="toggle"><input id="setting-hitbox" name="showHitbox" type="checkbox"> Показывать область касания</label></div>
+<label class="toggle"><input id="setting-loss-animation" name="lossAnimation" type="checkbox" aria-describedby="loss-animation-help"> Анимация проигрыша</label>
+<p class="setting-help" id="loss-animation-help">Взрыв и движение фигур за экраном результата.</p>
 <fieldset class="touch-options"><legend>Управление на телефоне</legend>
 <label class="toggle"><input id="setting-touchbar" name="touchbar" type="checkbox"> Сенсорная панель под ареной</label>
 <p class="setting-help">Как трекпад: двигай пальцем под полем, чтобы не закрывать игрока. Можно отрывать палец и переставлять его без скачка.</p></fieldset>
