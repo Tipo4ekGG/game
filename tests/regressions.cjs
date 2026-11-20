@@ -202,12 +202,24 @@ for (let seed = 63000; seed < 63020; seed++) {
   const pad = game.get('touchpad');
   const marker = game.get('player-marker');
   pad.dispatch('pointerdown', {button: 0, pointerId: 1, clientX: 200, clientY: 600, preventDefault() {}});
-  pad.dispatch('pointermove', {pointerId: 1, clientX: 200, clientY: 900});
+  pad.dispatch('pointermove', {pointerId: 1, clientX: 220, clientY: 610});
+  assert(marker.style.transform.startsWith('translate3d(528px,314px,'), 'saved settings without sensitivity must use the original movement');
+  pad.dispatch('pointermove', {pointerId: 1, clientX: 220, clientY: 900});
   assert.match(marker.style.transform, /583\.5px/, 'the full cursor must fit above the lower edge');
   pad.dispatch('pointerup', {pointerId: 1});
   const before = marker.style.transform;
   pad.dispatch('pointerdown', {button: 0, pointerId: 2, clientX: 100, clientY: 650, preventDefault() {}});
   assert.equal(marker.style.transform, before, 'new contact on the touchpad must not move the player');
+}
+
+for(const [value,x,y] of [[.5,514,307],[2,556,328]]){
+  const game = launch({...oneCircle,touchbar:true,padSensitivity:value});
+  game.arm();
+  Body.setPosition(game.obstacles()[0],{x:250,y:100});
+  const pad=game.get('touchpad');
+  pad.dispatch('pointerdown',{button:0,pointerId:1,clientX:200,clientY:600,preventDefault() {}});
+  pad.dispatch('pointermove',{pointerId:1,clientX:220,clientY:610});
+  assert(game.get('player-marker').style.transform.startsWith(`translate3d(${x}px,${y}px,`), 'the same swipe should scale on both axes');
 }
 
 let maxDepth = 0;

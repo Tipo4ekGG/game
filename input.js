@@ -8,8 +8,9 @@
     return codes[event.code]||keys[normalizedKey(event)]||null;
   }
   function canPickUp(player,pointer,worldPerPixel){return Math.hypot(player.x-pointer.x,player.y-pointer.y)<=8*worldPerPixel;}
-  function padPosition(player,previous,current,worldPerPixel,gain=1.4){
-    return {x:player.x+(current.x-previous.x)*worldPerPixel*gain,y:player.y+(current.y-previous.y)*worldPerPixel*gain};
+  function padPosition(player,previous,current,worldPerPixel,sensitivity=1){
+    const gain=1.4*worldPerPixel*sensitivity;
+    return {x:player.x+(current.x-previous.x)*gain,y:player.y+(current.y-previous.y)*gain};
   }
   const api={directionKey,keyIdentity,canPickUp,padPosition};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.BounceInput=api;

@@ -12,13 +12,20 @@
     $('action').onclick=()=>location.reload();
     return;
   }
-  const defaults={count:8,speed:1,size:1,types:[0,1,2,3],player:'cursor',cursorScale:.75,showHitbox:false,lossAnimation:false,touchbar:false,progression:true};
+  const defaults={count:8,speed:1,size:1,types:[0,1,2,3],player:'cursor',cursorScale:.75,showHitbox:false,lossAnimation:false,touchbar:false,padSensitivity:1,progression:true};
   const clamp=(value,min,max)=>Math.max(min,Math.min(max,value));
   const numberSetting=(value,fallback,min,max,step)=>Number.isFinite(Number(value))?clamp(Math.round(Number(value)/step)*step,min,max):fallback;
   function sanitize(raw) {
     if(!raw||typeof raw!=='object')raw={};
     const types=Array.isArray(raw.types)?[...new Set(raw.types.filter(v=>Number.isInteger(v)&&v>=0&&v<4))].sort():defaults.types.slice();
-    return {count:numberSetting(raw.count,8,1,30,1),speed:numberSetting(raw.speed,1,.25,3,.25),size:numberSetting(raw.size,1,.5,2,.25),types:types.length?types:defaults.types.slice(),player:raw.player==='dot'?'dot':'cursor',cursorScale:numberSetting(raw.cursorScale,.75,.5,3,.25),showHitbox:raw.showHitbox===true,lossAnimation:raw.lossAnimation===true,touchbar:raw.touchbar===true,progression:raw.progression!==false};
+    const padSensitivity=numberSetting(raw.padSensitivity??1,1,.5,2,.1);
+    return {
+      count:numberSetting(raw.count,8,1,30,1),speed:numberSetting(raw.speed,1,.25,3,.25),size:numberSetting(raw.size,1,.5,2,.25),
+      types:types.length?types:defaults.types.slice(),player:raw.player==='dot'?'dot':'cursor',
+      cursorScale:numberSetting(raw.cursorScale,.75,.5,3,.25),showHitbox:raw.showHitbox===true,
+      lossAnimation:raw.lossAnimation===true,touchbar:raw.touchbar===true,
+      padSensitivity:Number(padSensitivity.toFixed(1)),progression:raw.progression!==false
+    };
   }
   let settings={...defaults,types:defaults.types.slice()};
   try {
@@ -679,7 +686,7 @@
     const samples=event.getCoalescedEvents?.()||[event];
     for(const sample of samples.length?samples:[event]) {
       const current={x:sample.clientX,y:sample.clientY};
-      const next=controls.padPosition(player,padLast,current,worldPerPixel);
+      const next=controls.padPosition(player,padLast,current,worldPerPixel,settings.padSensitivity);
       padLast=current;movePlayer(next);if(state!=='running')break;
     }
   },{passive:true});
@@ -695,13 +702,20 @@
       $(output).value=value+(name==='count'?'':'×');
     }
     $('cursor-settings').hidden=settingsForm.elements.player.value!=='cursor';
+    $('touch-sensitivity').hidden=!$('setting-touchbar').checked;
+    const sensitivity=$('setting-pad-sensitivity');
+    const multiplier=sensitivity.value.replace('.',',');
+    $('pad-sensitivity-output').value=`${multiplier}×`;
+    sensitivity.setAttribute('aria-valuetext',`${multiplier}×`);
   }
   function openSettings() {
     if(state==='running'||state==='armed')pause('Настрой поле и начни новую попытку или закрой настройки, чтобы продолжить.');
     $('setting-count').value=settings.count;$('setting-speed').value=settings.speed;$('setting-size').value=settings.size;
     $('setting-cursor-scale').value=settings.cursorScale;$('setting-hitbox').checked=settings.showHitbox;
     $('setting-loss-animation').checked=settings.lossAnimation;
-    $('setting-touchbar').checked=settings.touchbar;$('setting-progression').checked=settings.progression;settingsForm.elements.player.value=settings.player;
+    $('setting-touchbar').checked=settings.touchbar;
+    $('setting-pad-sensitivity').value=settings.padSensitivity;
+    $('setting-progression').checked=settings.progression;settingsForm.elements.player.value=settings.player;
     settingsForm.querySelectorAll('[name="shape"]').forEach(box=>box.checked=settings.types.includes(Number(box.value)));
     $('settings-status').textContent='';updateForm();settingsDialog.showModal();
   }
@@ -718,7 +732,8 @@
       count:$('setting-count').value,speed:$('setting-speed').value,size:$('setting-size').value,types,
       player:settingsForm.elements.player.value,cursorScale:$('setting-cursor-scale').value,
       showHitbox:$('setting-hitbox').checked,lossAnimation:$('setting-loss-animation').checked,
-      touchbar:$('setting-touchbar').checked,progression:$('setting-progression').checked
+      touchbar:$('setting-touchbar').checked,padSensitivity:$('setting-pad-sensitivity').value,
+      progression:$('setting-progression').checked
     });
     try {localStorage.setItem(SETTINGS_KEY,JSON.stringify(settings));}catch {}
     touchbar.hidden=!settings.touchbar;settingsDialog.close();state='intro';layout();arm();
