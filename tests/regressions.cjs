@@ -118,11 +118,20 @@ const {Body, Collision} = Matter;
   game.clickArena(500,300);
   game.get('canvas').dispatch('pointermove',{pointerType:'mouse',clientX:650,clientY:300});
   game.frame(10);
-  for(let now=26;now<960;now+=16)game.frame(now);
+  for(let now=26;now<=874;now+=16)game.frame(now);
+  assert.equal(game.get('overlay').hidden,true,'the blast should still be visible');
+  // A fast, unobstructed body must keep its momentum when the result card opens.
+  Body.setPosition(triangle,{x:400,y:475});
+  Body.setVelocity(triangle,{x:13,y:0});
+  game.frame(890);
   assert.equal(game.get('overlay').hidden,false,'the result card must be visible');
   const position={...triangle.position};
   const time=game.get('time').textContent;
-  for(let now=960;now<1120;now+=16)game.frame(now);
+  game.frame(906);
+  game.frame(922);
+  const transitionSpeed=Math.hypot(triangle.velocity.x,triangle.velocity.y);
+  assert(transitionSpeed>11.7&&transitionSpeed<13,'speed should taper across the result transition without a hard cap');
+  for(let now=938;now<1120;now+=16)game.frame(now);
   assert(Math.hypot(triangle.position.x-position.x,triangle.position.y-position.y)>4,'the triangle must continue moving behind the result');
   assert.equal(game.get('time').textContent,time,'results must stay frozen while figures continue moving');
 }

@@ -34,6 +34,7 @@
   const marker=$('player-marker'),touchbar=$('touchbar'),touchpad=$('touchpad');
   const impactPreview=$('impact-preview'), impactCanvas=$('impact-canvas'), impactLabel=$('impact-label');
   const SHAKE_SECONDS=.28, IMPACT_SECONDS=.88;
+  const BLAST_DRAG_MS=520, RESULT_DRIFT_SPEED=2.1;
   let impact=null;
   let viewWidth=0,viewHeight=0,viewDpr=0,fieldX=0,fieldY=0,worldPerPixel=1;
   let arenaRect=null,cachedCursor=[],mousePickup=false,padPointer=null,padLast=null,markerTransform='';
@@ -213,10 +214,10 @@
     if(reducedMotion)finishImpact();
     requestPaint();
   }
-  function finishImpact() {
+  function finishImpact(now=null) {
     if(state!=='impact')return;
     state='over';arena.classList.remove('impact');arena.classList.add('result-shown');
-    last=null;accumulator=0;
+    last=now;accumulator=0;
     $('settings-open').disabled=false;
     overlay.hidden=false;$('eyebrow').textContent=impact.record?'ЛИЧНЫЙ РЕКОРД':'СТОЛКНОВЕНИЕ';
     $('title').textContent=impact.record?'Новая планка.':'Ещё раз?';
@@ -253,21 +254,26 @@
   function advanceImpact(now) {
     if(impact.startedAt===null)impact.startedAt=now;
     const phase=(now-impact.startedAt)/1000;
-    if(phase>=IMPACT_SECONDS){finishImpact();return;}
     if(phase>=SHAKE_SECONDS){
       if(!impact.blasted)emitBlast();
       const dt=Math.min(phase-Math.max(impact.phase,SHAKE_SECONDS),.035)*1000;
-      if(dt>0){
-        const steps=physics.substeps(shapes,dt);
-        for(let i=0;i<steps;i++)physics.advance(Matter,engine,dt/steps);
-        const drag=Math.exp(-dt/315);
-        for(const body of shapes){
-          Body.setVelocity(body,{x:body.velocity.x*drag,y:body.velocity.y*drag});
-          Body.setAngularVelocity(body,body.angularVelocity*drag);
-        }
-      }
+      if(dt>0)coastAfterBlast(dt);
     }
     impact.phase=phase;
+    if(phase>=IMPACT_SECONDS)finishImpact(now);
+  }
+  function coastAfterBlast(dt) {
+    const steps=physics.substeps(shapes,dt);
+    for(let i=0;i<steps;i++)physics.advance(Matter,engine,dt/steps);
+    const drag=Math.exp(-dt/BLAST_DRAG_MS);
+    for(const body of shapes){
+      const speed=Math.hypot(body.velocity.x,body.velocity.y);
+      const nextSpeed=RESULT_DRIFT_SPEED+(speed-RESULT_DRIFT_SPEED)*drag;
+      if(speed>.0001)Body.setSpeed(body,nextSpeed);
+      else Body.setVelocity(body,{x:nextSpeed,y:0});
+      Body.setAngularVelocity(body,body.angularVelocity*drag);
+      keepBodyInField(body);
+    }
   }
   function hits(a,b,body,vertices=body.vertices,center=body.position) {
     // Most obstacles are nowhere near the player's path. Reject them before edge tests.
@@ -392,20 +398,21 @@
       }
     }
     const levelTime=playing&&settings.progression?elapsed:0;
-    const resultMotion=state==='over';
-    const maxSpeed=resultMotion?6:Math.min(6,3+levelTime*.022)*settings.speed;
-    const minimum=resultMotion?1.6:Math.min(4.8,2.1+levelTime*.018)*settings.speed;
-    const maxSpin=resultMotion ? .05 : .025*settings.speed;
+    const maxSpeed=Math.min(6,3+levelTime*.022)*settings.speed;
+    const minimum=Math.min(4.8,2.1+levelTime*.018)*settings.speed;
+    const maxSpin=.025*settings.speed;
     shapes.forEach(body=>{
       const speed=Math.hypot(body.velocity.x,body.velocity.y);
       if(speed<.01) Body.setVelocity(body,{x:minimum,y:minimum*.4});
       else if(speed<minimum||speed>maxSpeed) Body.setSpeed(body,Math.max(minimum,Math.min(maxSpeed,speed)));
       if(Math.abs(body.angularVelocity)>maxSpin)Body.setAngularVelocity(body,Math.sign(body.angularVelocity)*maxSpin);
-      const r=body.gameRadius;
-      if(body.position.x<-r||body.position.x>W+r||body.position.y<-r||body.position.y>H+r) {
-        Body.setPosition(body,{x:Math.max(r,Math.min(W-r,body.position.x)),y:Math.max(r,Math.min(H-r,body.position.y))});
-      }
+      keepBodyInField(body);
     });
+  }
+  function keepBodyInField(body) {
+    const r=body.gameRadius;
+    if(body.position.x>=-r&&body.position.x<=W+r&&body.position.y>=-r&&body.position.y<=H+r)return;
+    Body.setPosition(body,{x:clamp(body.position.x,r,W-r),y:clamp(body.position.y,r,H-r)});
   }
   function circle(x,y,r) {ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);}
   function polygon(context,vertices){
@@ -431,10 +438,16 @@
     context.restore();
   }
   function contactMark(context,point,pixels){
-    context.save();context.translate(point.x,point.y);
-    context.beginPath();context.arc(0,0,1.6*pixels,0,Math.PI*2);
-    context.strokeStyle='#0c0c0c';context.lineWidth=.9*pixels;context.stroke();
-    context.fillStyle='#fff';context.fill();
+    const radius=3.4*pixels;
+    context.save();
+    context.beginPath();
+    context.moveTo(point.x,point.y-radius);
+    context.lineTo(point.x+radius,point.y);
+    context.lineTo(point.x,point.y+radius);
+    context.lineTo(point.x-radius,point.y);
+    context.closePath();
+    context.fillStyle='#101010';context.fill();
+    context.strokeStyle='#fff';context.lineWidth=1.25*pixels;context.stroke();
     context.restore();
   }
   function drawImpactPreview(){
@@ -571,7 +584,9 @@
       const delta=last===null?0:Math.min(now-last,70);
       last=now;accumulator+=delta;
       while(accumulator>=STEP&&isAnimating()){
-        simulate(STEP,state==='running');accumulator-=STEP;
+        if(state==='over')coastAfterBlast(STEP);
+        else simulate(STEP,state==='running');
+        accumulator-=STEP;
       }
     } else {last=null;accumulator=0;}
     hud();draw();updateMarker();
