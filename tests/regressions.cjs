@@ -11,7 +11,10 @@ const source = readFileSync(require.resolve('../game.js'), 'utf8');
 function launch(settings = {}, dimensions = {width: 1000, height: 600}, seed = 1, storage = new Map(), reducedMotion = false) {
   const elements = new Map(), windowEvents = new Map();
   let pendingFrame, resize, engine, draws = 0;
-  const context = new Proxy({fillRect() { draws++; }}, {
+  const context = new Proxy({
+    fillRect() { draws++; },
+    createRadialGradient() { return {addColorStop() {}}; }
+  }, {
     get: (target, key) => target[key] ?? (() => {})
   });
   function get(id) {
@@ -19,7 +22,7 @@ function launch(settings = {}, dimensions = {width: 1000, height: 600}, seed = 1
     const listeners = new Map();
     const element = {
       id, hidden: id==='result'||id==='impact-preview', textContent: '', style: {},
-      width: 480, height: 180,
+      width: 544, height: 186,
       classList: {add() {}, remove() {}, toggle() {}},
       toggleAttribute(name, value) { this[name] = value; },
       addEventListener(name, callback) { listeners.set(name, callback); },
@@ -90,7 +93,7 @@ const {Body, Collision} = Matter;
   game.frame(200);
   assert.equal(body.position.x, collisionX, 'the contact frame must hold during the glow');
   game.frame(360);
-  assert(body.position.x > collisionX, 'the blast must push the circle away from the contact point');
+  assert(body.position.x > collisionX + 15, 'the stronger blast must push the circle away from the contact point');
   assert.equal(game.get('time').textContent, frozenTime, 'the effect must not extend the scored run');
   game.frame(1000);
   assert.equal(game.get('overlay').hidden, false);
@@ -106,6 +109,25 @@ const {Body, Collision} = Matter;
 }
 
 {
+  const game = launch({...oneCircle,count:2,types:[0,2]});
+  game.arm();
+  const [circle,triangle] = game.obstacles();
+  Body.setPosition(circle,{x:570,y:300});
+  Body.setPosition(triangle,{x:710,y:430});
+  Body.setVelocity(triangle,{x:0,y:0});
+  game.clickArena(500,300);
+  game.get('canvas').dispatch('pointermove',{pointerType:'mouse',clientX:650,clientY:300});
+  game.frame(10);
+  for(let now=26;now<960;now+=16)game.frame(now);
+  assert.equal(game.get('overlay').hidden,false,'the result card must be visible');
+  const position={...triangle.position};
+  const time=game.get('time').textContent;
+  for(let now=960;now<1120;now+=16)game.frame(now);
+  assert(Math.hypot(triangle.position.x-position.x,triangle.position.y-position.y)>4,'the triangle must continue moving behind the result');
+  assert.equal(game.get('time').textContent,time,'results must stay frozen while figures continue moving');
+}
+
+{
   const game = launch(oneCircle, undefined, 1, undefined, true);
   game.arm();
   const [body] = game.obstacles();
@@ -114,6 +136,8 @@ const {Body, Collision} = Matter;
   game.get('canvas').dispatch('pointermove', {pointerType: 'mouse', clientX: 650, clientY: 300});
   assert.equal(game.get('overlay').hidden, false, 'reduced motion must show the result immediately');
   assert.equal(game.get('impact-preview').hidden, false, 'reduced motion must preserve contact information');
+  game.frame(10);
+  game.frame(100);
   assert.equal(body.position.x, 530, 'reduced motion must skip the blast');
 }
 

@@ -32,7 +32,7 @@
   const settingsDialog=$('settings-dialog'), settingsForm=$('settings-form');
   const physics=window.BouncePhysics,controls=window.BounceInput;
   const marker=$('player-marker'),touchbar=$('touchbar'),touchpad=$('touchpad');
-  const impactPreview=$('impact-preview'), impactCanvas=$('impact-canvas');
+  const impactPreview=$('impact-preview'), impactCanvas=$('impact-canvas'), impactLabel=$('impact-label');
   const SHAKE_SECONDS=.28, IMPACT_SECONDS=.88;
   let impact=null;
   let viewWidth=0,viewHeight=0,viewDpr=0,fieldX=0,fieldY=0,worldPerPixel=1;
@@ -216,6 +216,7 @@
   function finishImpact() {
     if(state!=='impact')return;
     state='over';arena.classList.remove('impact');arena.classList.add('result-shown');
+    last=null;accumulator=0;
     $('settings-open').disabled=false;
     overlay.hidden=false;$('eyebrow').textContent=impact.record?'ЛИЧНЫЙ РЕКОРД':'СТОЛКНОВЕНИЕ';
     $('title').textContent=impact.record?'Новая планка.':'Ещё раз?';
@@ -239,13 +240,13 @@
       const dx=body.position.x-center.x,dy=body.position.y-center.y;
       const distance=Math.hypot(dx,dy);
       const angle=distance>.01?Math.atan2(dy,dx):random(0,Math.PI*2);
-      const speed=3+12/(1+distance/180);
-      Body.setVelocity(body,{x:body.velocity.x*.25+Math.cos(angle)*speed,y:body.velocity.y*.25+Math.sin(angle)*speed});
-      Body.setAngularVelocity(body,body.angularVelocity*.4+(body.gameType===0?0:random(-.075,.075)));
+      const speed=8+20/(1+distance/200);
+      Body.setVelocity(body,{x:body.velocity.x*.35+Math.cos(angle)*speed,y:body.velocity.y*.35+Math.sin(angle)*speed});
+      Body.setAngularVelocity(body,body.angularVelocity*.4+(body.gameType===0?0:random(-.14,.14)));
     }
-    for(let i=0;i<28;i++){
-      const angle=random(0,Math.PI*2),speed=random(45,220);
-      impact.particles.push({x:Math.cos(angle)*speed,y:Math.sin(angle)*speed,size:random(1,2.5)});
+    for(let i=0;i<40;i++){
+      const angle=random(0,Math.PI*2),speed=random(85,405);
+      impact.particles.push({x:Math.cos(angle)*speed,y:Math.sin(angle)*speed,life:random(.23,.6),size:random(1,2.6)});
     }
     impact.blasted=true;
   }
@@ -259,7 +260,7 @@
       if(dt>0){
         const steps=physics.substeps(shapes,dt);
         for(let i=0;i<steps;i++)physics.advance(Matter,engine,dt/steps);
-        const drag=Math.exp(-dt/190);
+        const drag=Math.exp(-dt/315);
         for(const body of shapes){
           Body.setVelocity(body,{x:body.velocity.x*drag,y:body.velocity.y*drag});
           Body.setAngularVelocity(body,body.angularVelocity*drag);
@@ -391,13 +392,15 @@
       }
     }
     const levelTime=playing&&settings.progression?elapsed:0;
-    const maxSpeed=Math.min(6,3+levelTime*.022)*settings.speed;
+    const resultMotion=state==='over';
+    const maxSpeed=resultMotion?6:Math.min(6,3+levelTime*.022)*settings.speed;
+    const minimum=resultMotion?1.6:Math.min(4.8,2.1+levelTime*.018)*settings.speed;
+    const maxSpin=resultMotion ? .05 : .025*settings.speed;
     shapes.forEach(body=>{
       const speed=Math.hypot(body.velocity.x,body.velocity.y);
-      const minimum=Math.min(4.8,2.1+levelTime*.018)*settings.speed;
       if(speed<.01) Body.setVelocity(body,{x:minimum,y:minimum*.4});
       else if(speed<minimum||speed>maxSpeed) Body.setSpeed(body,Math.max(minimum,Math.min(maxSpeed,speed)));
-      if(Math.abs(body.angularVelocity)>.025*settings.speed)Body.setAngularVelocity(body,Math.sign(body.angularVelocity)*.025*settings.speed);
+      if(Math.abs(body.angularVelocity)>maxSpin)Body.setAngularVelocity(body,Math.sign(body.angularVelocity)*maxSpin);
       const r=body.gameRadius;
       if(body.position.x<-r||body.position.x>W+r||body.position.y<-r||body.position.y>H+r) {
         Body.setPosition(body,{x:Math.max(r,Math.min(W-r,body.position.x)),y:Math.max(r,Math.min(H-r,body.position.y))});
@@ -413,14 +416,14 @@
     }
     context.closePath();
   }
-  function paintAvatar(context,position,cursor,pixels,glow=false){
+  function paintAvatar(context,position,cursor,pixels,lit=false){
     context.save();
     context.translate(position.x,position.y);
-    if(glow){context.shadowColor='#fff';context.shadowBlur=14;}
+    if(lit){context.shadowColor='#fff';context.shadowBlur=18;}
     if(cursor){
       polygon(context,cursor);
-      context.fillStyle=glow?'#f5f5f5':'#151515';context.fill();
-      context.strokeStyle='#fff';context.lineWidth=pixels;context.stroke();
+      context.fillStyle='#f5f5f5';context.fill();
+      context.strokeStyle=lit?'#fff':'#101010';context.lineWidth=pixels;context.stroke();
     } else {
       context.beginPath();context.arc(0,0,RADIUS,0,Math.PI*2);
       context.fillStyle='#fff';context.fill();
@@ -429,11 +432,10 @@
   }
   function contactMark(context,point,pixels){
     context.save();context.translate(point.x,point.y);
-    context.beginPath();context.arc(0,0,5*pixels,0,Math.PI*2);
-    context.strokeStyle='#111';context.lineWidth=4*pixels;context.stroke();
-    context.strokeStyle='#fff';context.lineWidth=1.3*pixels;context.stroke();
-    context.beginPath();context.arc(0,0,1.5*pixels,0,Math.PI*2);
-    context.fillStyle='#fff';context.fill();context.restore();
+    context.beginPath();context.arc(0,0,1.6*pixels,0,Math.PI*2);
+    context.strokeStyle='#0c0c0c';context.lineWidth=.9*pixels;context.stroke();
+    context.fillStyle='#fff';context.fill();
+    context.restore();
   }
   function drawImpactPreview(){
     const context=impactCanvas.getContext('2d');
@@ -444,33 +446,70 @@
     const xs=points.map(p=>p.x),ys=points.map(p=>p.y);
     const left=Math.min(...xs),top=Math.min(...ys);
     const width=Math.max(...xs)-left,height=Math.max(...ys)-top;
-    const scale=Math.min((impactCanvas.width-68)/Math.max(18,width),(impactCanvas.height-42)/Math.max(18,height));
+    const center=vertices.reduce((sum,vertex)=>sum+vertex.x,0)/vertices.length;
+    const labelOnLeft=point.x<=center;
+    const labelWidth=150;
+    const diagramWidth=impactCanvas.width-labelWidth-32;
+    const scale=Math.min(diagramWidth/Math.max(18,width),(impactCanvas.height-26)/Math.max(18,height));
     const pixel=2/scale;
+    const offsetX=(labelOnLeft?labelWidth:0)+16+(diagramWidth-width*scale)/2-left*scale;
+    const offsetY=(impactCanvas.height-height*scale)/2-top*scale;
+    const markX=point.x*scale+offsetX,markY=point.y*scale+offsetY;
+    const direction=labelOnLeft?-1:1;
+    const leadEnd=labelOnLeft?labelWidth-12:impactCanvas.width-labelWidth+12;
+    const labelY=clamp(markY,40,impactCanvas.height-40);
+    impactPreview.classList.toggle('label-left',labelOnLeft);
+    impactLabel.style.top=`${100*labelY/impactCanvas.height}%`;
     context.setTransform(1,0,0,1,0,0);
     context.fillStyle='#101010';context.fillRect(0,0,impactCanvas.width,impactCanvas.height);
-    context.setTransform(scale,0,0,scale,(impactCanvas.width-width*scale)/2-left*scale,(impactCanvas.height-height*scale)/2-top*scale);
+    context.beginPath();
+    context.moveTo(leadEnd,labelY);
+    context.lineTo(leadEnd-direction*22,labelY);
+    context.lineTo(markX,markY);
+    context.strokeStyle='#929292';context.lineWidth=2;context.stroke();
+    context.setTransform(scale,0,0,scale,offsetX,offsetY);
     polygon(context,vertices);context.fillStyle='#363636';context.fill();
-    context.lineWidth=1.5*pixel;context.strokeStyle='#c9c9c9';context.stroke();
+    context.lineWidth=pixel;context.strokeStyle='#bcbcbc';context.stroke();
     paintAvatar(context,origin,cursor,pixel);contactMark(context,point,pixel);
   }
   function drawImpact(){
     const {phase,origin,point,cursor,particles}=impact;
     if(phase<SHAKE_SECONDS){
-      const amount=(2+4*phase/SHAKE_SECONDS)*worldPerPixel;
+      const amount=(2+6*phase/SHAKE_SECONDS)*worldPerPixel;
       paintAvatar(ctx,{x:origin.x+Math.sin(phase*122)*amount,y:origin.y+Math.cos(phase*94)*amount*.45},cursor,1.5*worldPerPixel,true);
       contactMark(ctx,point,worldPerPixel);
       return;
     }
     const burst=phase-SHAKE_SECONDS;
-    const fade=Math.max(0,1-burst/(IMPACT_SECONDS-SHAKE_SECONDS));
-    ctx.save();ctx.globalAlpha=fade;
-    circle(point.x,point.y,(7+burst*210)*worldPerPixel);
-    ctx.strokeStyle='#eee';ctx.lineWidth=(1+fade)*worldPerPixel;ctx.stroke();
-    ctx.fillStyle='#fff';
-    if(burst<.1){circle(point.x,point.y,(12-burst*90)*worldPerPixel);ctx.fill();}
+    ctx.save();
+    const maxRadius=clamp(viewHeight*.57,100,285)*worldPerPixel;
+    if(burst<.17){
+      const fade=1-burst/.17;
+      const radius=(27+burst*300)*worldPerPixel;
+      const glow=ctx.createRadialGradient(point.x,point.y,0,point.x,point.y,radius);
+      glow.addColorStop(0,`rgba(255,255,255,${fade*.85})`);
+      glow.addColorStop(.25,`rgba(255,255,255,${fade*.36})`);
+      glow.addColorStop(1,'rgba(255,255,255,0)');
+      circle(point.x,point.y,radius);ctx.fillStyle=glow;ctx.fill();
+    }
+    for(const [delay,strength] of [[0,1],[.085,.63]]){
+      const t=(burst-delay)/.49;
+      if(t<0||t>=1)continue;
+      const radius=(.035+(1-(1-t)**2)*.965)*maxRadius*strength;
+      circle(point.x,point.y,radius);
+      ctx.strokeStyle=`rgba(255,255,255,${(1-t)**2*strength})`;
+      ctx.lineWidth=(1+4*(1-t))*worldPerPixel;ctx.stroke();
+    }
+    ctx.strokeStyle='#fff';ctx.lineCap='round';
     for(const particle of particles){
-      circle(point.x+particle.x*burst*worldPerPixel,point.y+particle.y*burst*worldPerPixel,particle.size*fade*worldPerPixel);
-      ctx.fill();
+      if(burst>=particle.life)continue;
+      const fade=1-burst/particle.life;
+      const displacement=(1-Math.exp(-burst*2.4))/2.4*worldPerPixel;
+      const tail=Math.max(0,displacement-.05*fade*worldPerPixel);
+      ctx.beginPath();
+      ctx.moveTo(point.x+particle.x*tail,point.y+particle.y*tail);
+      ctx.lineTo(point.x+particle.x*displacement,point.y+particle.y*displacement);
+      ctx.globalAlpha=fade;ctx.lineWidth=particle.size*fade*worldPerPixel;ctx.stroke();
     }
     ctx.restore();
   }
@@ -484,7 +523,7 @@
     ctx.save();ctx.beginPath();ctx.rect(0,0,W,H);ctx.clip();
     ctx.fillStyle='#0c0c0c';ctx.fillRect(0,0,W,H);
     if(fieldX>.5||fieldY>.5){ctx.strokeStyle='#565656';ctx.lineWidth=2*worldPerPixel;ctx.strokeRect(0,0,W,H);}
-    const active=state==='running'||state==='armed'||state==='impact';
+    const active=state==='running'||state==='armed'||state==='impact'||state==='over';
     for(const body of shapes){
       const highlight=state==='impact'&&!impact.blasted&&body===impact.body;
       polygon(ctx,highlight?impact.vertices:body.vertices);
@@ -521,7 +560,8 @@
     paintPending=true;requestAnimationFrame(frame);
   }
   function isAnimating() {
-    return !settingsDialog.open&&(state==='running'||(state==='intro'&&!reducedMotion));
+    if(settingsDialog.open||document.hidden)return false;
+    return state==='running'||(!reducedMotion&&(state==='intro'||state==='over'));
   }
   function frame(now) {
     paintPending=false;
@@ -605,7 +645,8 @@
   window.addEventListener('keyup',event=>keys.delete(controls.keyIdentity(event)));
   window.addEventListener('blur',()=>pause('Вкладка потеряла фокус. Игра ждёт тебя.'));
   document.addEventListener('visibilitychange',()=>{
-    if(!document.hidden)return;
+    if(!document.hidden){if(isAnimating())requestPaint();return;}
+    last=null;accumulator=0;
     if(state==='impact')finishImpact();
     else pause('Вкладка была скрыта. Продолжим?');
   });
