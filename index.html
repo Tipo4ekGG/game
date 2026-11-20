@@ -17,6 +17,7 @@
 <header class="topbar">
 <a class="wordmark" href="./" aria-label="Рикошет, главная"><span class="brand-icon" aria-hidden="true">◈</span> РИКОШЕТ<span class="edition"> / 01</span></a>
 <div class="scores"><div><span class="label">ВРЕМЯ</span><span id="time" class="value">00:00.0</span></div><div><span class="label">РЕКОРД</span><span id="best" class="value secondary">00:00.0</span></div></div>
+<button id="settings-open" class="icon-button" aria-label="Настройки игры"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14M7 3v4M13 8v4M8 13v4"/></svg></button>
 <button id="pause" class="icon-button" aria-label="Пауза" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 5v10M13 5v10"/></svg></button>
 </header>
 <section id="arena" class="arena" aria-label="Игровое поле">
@@ -26,7 +27,7 @@
 <div class="panel">
 <p id="eyebrow" class="eyebrow">ИГРА НА РЕАКЦИЮ</p>
 <h1 id="title">Не касайся.</h1>
-<p id="description" class="description">Ты — точка. Всё остальное — препятствия.<br>Двигайся и оставайся в игре.</p>
+<p id="description" class="description">Ты — курсор. Всё остальное — препятствия.<br>Двигайся и оставайся в игре.</p>
 <div id="result" class="result" hidden></div>
 <button id="action" class="action">Начать игру</button>
 <p id="hint" class="hint">Курсор · касание · клавиши со стрелками</p>
@@ -34,8 +35,35 @@
 </div>
 <div id="notice" class="notice" role="status" aria-live="polite"></div>
 </section>
-<footer class="bottom-bar"><p><span class="player-symbol" aria-hidden="true"></span> ТЫ — БЕЛАЯ ТОЧКА</p><p id="footer-hint">УВОРАЧИВАЙСЯ. ДЕРЖИСЬ ДОЛЬШЕ.</p><span class="keyboard-hint"><kbd>ESC</kbd> ПАУЗА</span></footer>
+<footer class="bottom-bar"><p id="player-label">ТЫ — СИСТЕМНЫЙ КУРСОР</p><p id="footer-hint">УВОРАЧИВАЙСЯ. ДЕРЖИСЬ ДОЛЬШЕ.</p><span class="keyboard-hint"><kbd>ESC</kbd> ПАУЗА</span></footer>
 </main>
+<dialog id="settings-dialog" aria-labelledby="settings-title">
+<form id="settings-form">
+<div class="settings-heading"><h2 id="settings-title">Твоя игра.</h2><button type="button" id="settings-close" class="close-button" aria-label="Закрыть настройки">×</button></div>
+<p class="settings-lead">Настрой поле под себя. Изменения начнут новую попытку.</p>
+<label class="range-label" for="setting-count">Количество фигур <output id="count-output" for="setting-count">8</output></label>
+<input id="setting-count" name="count" type="range" min="1" max="30" step="1" value="8">
+<label class="range-label" for="setting-speed">Скорость <output id="speed-output" for="setting-speed">1×</output></label>
+<input id="setting-speed" name="speed" type="range" min="0.25" max="3" step="0.25" value="1">
+<label class="range-label" for="setting-size">Размер фигур <output id="size-output" for="setting-size">1×</output></label>
+<input id="setting-size" name="size" type="range" min="0.5" max="2" step="0.25" value="1">
+<fieldset><legend>Фигуры <span class="small-note">хотя бы одна</span></legend><div class="shape-options">
+<label><input type="checkbox" name="shape" value="0" checked><span>○ Круг</span></label>
+<label><input type="checkbox" name="shape" value="1" checked><span>□ Квадрат</span></label>
+<label><input type="checkbox" name="shape" value="2" checked><span>△ Треугольник</span></label>
+<label><input type="checkbox" name="shape" value="3" checked><span>⬡ Шестиугольник</span></label>
+</div></fieldset>
+<fieldset><legend>За кого играешь</legend><div class="player-options"><label><input name="player" type="radio" value="cursor" checked> Родной курсор</label><label><input name="player" type="radio" value="dot"> Точка</label></div></fieldset>
+<div id="cursor-settings"><p class="setting-help" id="cursor-help">Системная стрелка остаётся видимой. Касания считаются по примерному контуру стандартной стрелки macOS. Браузер не определяет её системный размер.</p>
+<label class="range-label" for="setting-cursor-scale">Масштаб области курсора <output id="cursor-scale-output" for="setting-cursor-scale">1×</output></label>
+<input id="setting-cursor-scale" name="cursorScale" type="range" min="1" max="3" step="0.25" value="1" aria-describedby="cursor-help">
+<label class="toggle"><input id="setting-hitbox" name="showHitbox" type="checkbox"> Показывать область касания</label></div>
+<label class="toggle progression"><input id="setting-progression" name="progression" type="checkbox" checked> Постепенно усложнять игру</label>
+<p class="setting-help">Выключи усложнение, чтобы количество и скорость оставались заданными. Рекорд сохраняется отдельно для каждого набора настроек.</p>
+<p id="settings-status" class="setting-help" role="status"></p>
+<button type="submit" class="action apply-button">Применить и начать заново</button>
+<button type="button" id="settings-cancel" class="cancel-button">Отмена</button>
+</form></dialog>
 <noscript>Для игры включите JavaScript в настройках браузера.</noscript>
 </body>
 </html>

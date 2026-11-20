@@ -31,7 +31,30 @@
   function sweptCircleCircle(a,b,r,center,otherRadius) {
     return pointSegmentDistanceSquared(center,a,b)<=sq(r+otherRadius);
   }
-  const api={pointSegmentDistanceSquared,segmentDistanceSquared,inside,sweptCirclePolygon,sweptCircleCircle};
+  // A concave polygon translated along a segment sweeps its start, end and edge quads.
+  // Keeping the quads separate preserves the cursor's empty notches (no bounding circle).
+  function polygonsTouch(a,b,padding=0) {
+    if(a.some(p=>inside(p,b))||b.some(p=>inside(p,a)))return true;
+    for(let i=0;i<a.length;i++)for(let j=0;j<b.length;j++) {
+      if(segmentDistanceSquared(a[i],a[(i+1)%a.length],b[j],b[(j+1)%b.length])<=padding*padding+1e-10)return true;
+    }
+    return false;
+  }
+  function sweptPolygonPolygon(start,end,local,obstacle,padding=0) {
+    const a=local.map(p=>({x:p.x+start.x,y:p.y+start.y}));
+    const b=local.map(p=>({x:p.x+end.x,y:p.y+end.y}));
+    if(polygonsTouch(a,obstacle,padding)||polygonsTouch(b,obstacle,padding))return true;
+    for(let i=0;i<local.length;i++) {
+      const j=(i+1)%local.length;
+      if(polygonsTouch([a[i],a[j],b[j],b[i]],obstacle,padding))return true;
+    }
+    return false;
+  }
+  function sweptPolygonCircle(start,end,local,center,radius) {
+    return sweptCirclePolygon({x:center.x-start.x,y:center.y-start.y},{x:center.x-end.x,y:center.y-end.y},radius,local);
+  }
+  const MAC_CURSOR=[{x:0,y:0},{x:0,y:18},{x:4.5,y:13.5},{x:8,y:21},{x:11,y:19.5},{x:7.5,y:12},{x:14,y:12}];
+  const api={pointSegmentDistanceSquared,segmentDistanceSquared,inside,sweptCirclePolygon,sweptCircleCircle,polygonsTouch,sweptPolygonPolygon,sweptPolygonCircle,MAC_CURSOR};
   if(typeof module!=='undefined'&&module.exports) module.exports=api;
   else root.GameGeometry=api;
 })(typeof globalThis==='undefined'?this:globalThis);
