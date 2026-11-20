@@ -25,3 +25,13 @@ for(let i=0;i<100;i++) {
  if(sampled)assert(swept,'swept polygon cannot miss a sampled collision');
 }
 console.log('10 cursor contour checks and 100 deterministic sweep comparisons passed');
+
+// Identify the part of the actual cursor contour that made first contact.
+for (const [part, obstacle] of [['tip', box(0, -.2)], ['tail', box(8, 21.2)], ['edge', box(-.2, 9)]]) {
+ const contact=g.firstContact(point,point,obstacle,{cursor:arrow});
+ assert.equal(contact?.part,part);
+}
+const through=g.firstContact(point,{x:100,y:0},box(55,0,1),{radius:5});
+assert.equal(through.part,'dot');
+assert(Math.abs(through.origin.x-49)<.001,'capture the first impact even when both endpoints are outside');
+assert.deepEqual(through.point,{x:54,y:0},'marker should lie on the contacted figure boundary');

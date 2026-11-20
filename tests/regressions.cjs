@@ -8,7 +8,7 @@ const input = require('../input.js');
 const source = readFileSync(require.resolve('../game.js'), 'utf8');
 
 // Run the real game loop against controlled input, time, storage and viewport size.
-function launch(settings = {}, dimensions = {width: 1000, height: 600}, seed = 1, storage = new Map()) {
+function launch(settings = {}, dimensions = {width: 1000, height: 600}, seed = 1, storage = new Map(), reducedMotion = false) {
   const elements = new Map(), windowEvents = new Map();
   let pendingFrame, resize, engine, draws = 0;
   const context = new Proxy({fillRect() { draws++; }}, {
@@ -18,7 +18,8 @@ function launch(settings = {}, dimensions = {width: 1000, height: 600}, seed = 1
     if (elements.has(id)) return elements.get(id);
     const listeners = new Map();
     const element = {
-      id, hidden: false, textContent: '', style: {},
+      id, hidden: id==='result'||id==='impact-preview', textContent: '', style: {},
+      width: 480, height: 180,
       classList: {add() {}, remove() {}, toggle() {}},
       toggleAttribute(name, value) { this[name] = value; },
       addEventListener(name, callback) { listeners.set(name, callback); },
@@ -43,7 +44,7 @@ function launch(settings = {}, dimensions = {width: 1000, height: 600}, seed = 1
   runInNewContext(source, {
     window, Matter, Math: math, devicePixelRatio: 1,
     document: {getElementById: get, addEventListener() {}},
-    matchMedia: () => ({matches: false}),
+    matchMedia: () => ({matches: reducedMotion}),
     localStorage: {
       getItem: key => key === 'bounce.settings.v3' ? JSON.stringify(settings) : storage.get(key),
       setItem: (key, value) => storage.set(key, value)
@@ -82,11 +83,38 @@ const {Body, Collision} = Matter;
   game.key('keydown', 'KeyD', 'd');
   game.frame(30);
   assert.equal(game.mode(), ended, 'moving back into the circle must still cause a collision');
+  assert.equal(game.get('overlay').hidden, true, 'the game over panel must wait for the animation');
+  const frozenTime = game.get('time').textContent;
+  const collisionX = body.position.x;
+  game.frame(40);
+  game.frame(200);
+  assert.equal(body.position.x, collisionX, 'the contact frame must hold during the glow');
+  game.frame(360);
+  assert(body.position.x > collisionX, 'the blast must push the circle away from the contact point');
+  assert.equal(game.get('time').textContent, frozenTime, 'the effect must not extend the scored run');
+  game.frame(1000);
+  assert.equal(game.get('overlay').hidden, false);
+  assert.equal(game.get('impact-preview').hidden, false);
+  assert.equal(game.get('description').textContent, 'Точка задела круг.');
   const [record] = game.storage.keys();
   assert.equal(JSON.parse(record.slice('bounce.best.v4.'.length)).arenaHeight, 600);
   assert.equal(launch(oneCircle, undefined, 1, game.storage).get('best').textContent, game.get('best').textContent);
   const otherArena = launch(oneCircle, {width: 400, height: 700}, 1, game.storage);
   assert.equal(otherArena.get('best').textContent, '00:00.0', 'a different arena must start with its own record');
+  game.arm();
+  assert.equal(game.get('impact-preview').hidden, true, 'restarting must clear the previous impact preview');
+}
+
+{
+  const game = launch(oneCircle, undefined, 1, undefined, true);
+  game.arm();
+  const [body] = game.obstacles();
+  Body.setPosition(body, {x: 530, y: 300});
+  game.clickArena(500, 300);
+  game.get('canvas').dispatch('pointermove', {pointerType: 'mouse', clientX: 650, clientY: 300});
+  assert.equal(game.get('overlay').hidden, false, 'reduced motion must show the result immediately');
+  assert.equal(game.get('impact-preview').hidden, false, 'reduced motion must preserve contact information');
+  assert.equal(body.position.x, 530, 'reduced motion must skip the blast');
 }
 
 {
