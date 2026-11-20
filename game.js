@@ -32,11 +32,12 @@
   const settingsDialog=$('settings-dialog'), settingsForm=$('settings-form');
   const physics=window.BouncePhysics,controls=window.BounceInput;
   const marker=$('player-marker'),touchbar=$('touchbar'),touchpad=$('touchpad');
-  let viewWidth=0,viewHeight=0,viewDpr=0;
-  let sceneMessage='',worldPerPixel=1,arenaRect=null,cachedCursor=[],mousePickup=false,padPointer=null,padLast=null,markerTransform='';
+  let viewWidth=0,viewHeight=0,viewDpr=0,fieldX=0,fieldY=0,worldPerPixel=1;
+  let arenaRect=null,cachedCursor=[],mousePickup=false,padPointer=null,padLast=null,markerTransform='';
+  let paintPending=false;
   function recordKey() {
     const {count,speed,size,types,player,cursorScale,progression}=settings;
-    return 'bounce.best.v3.'+JSON.stringify({count,speed,size,types,player,cursorScale:player==='cursor'?cursorScale:1,progression});
+    return 'bounce.best.v4.'+JSON.stringify({count,speed,size,types,player,cursorScale:player==='cursor'?cursorScale:1,progression,arenaHeight:H});
   }
   function loadBest() {
     best=0;try {best=Number(localStorage.getItem(recordKey()))||0;if(!Number.isFinite(best)||best<0)best=0;} catch {}
@@ -48,7 +49,7 @@
     const visible=state==='running'&&input!=='pointer';
     marker.toggleAttribute('hidden',!visible);if(!visible)return;
     const scale=settings.player==='dot'?1/worldPerPixel:settings.cursorScale;
-    const transform=`translate3d(${player.x/worldPerPixel}px,${player.y/worldPerPixel}px,0) scale(${scale})`;
+    const transform=`translate3d(${fieldX+player.x/worldPerPixel}px,${fieldY+player.y/worldPerPixel}px,0) scale(${scale})`;
     if(transform!==markerTransform){marker.style.transform=transform;markerTransform=transform;}
     marker.classList.toggle('dot',settings.player==='dot');
   }
@@ -62,15 +63,15 @@
   const {Engine,Bodies,Body,Composite}=Matter;
   const engine=physics.createEngine(Matter);
   let W=1000,H=600,state='intro',shapes=[],walls=[],elapsed=0,best=0,nextSpawn=12;
-  let last=0,accumulator=0,warning=null,spawnId=0,lastHud=-1;
-  let player={x:W/2,y:H/2},trail=[],keys=new Set(),input='pointer',touchId=null;
-  let reducedMotion=matchMedia('(prefers-reduced-motion: reduce)').matches;
-  loadBest();cacheCursor();touchbar.hidden=!settings.touchbar;syncPlayerMode();
+  let last=null,accumulator=0,warning=null,lastHud=-1;
+  let player={x:W/2,y:H/2},trail=[],keys=new Map(),input='pointer',touchId=null;
+  const motionPreference=matchMedia('(prefers-reduced-motion: reduce)');
+  let reducedMotion=motionPreference.matches;
+  touchbar.hidden=!settings.touchbar;syncPlayerMode();
   function time(value) {
     const ticks=Math.floor(value*10+1e-7);
     return `${String(Math.floor(ticks/600)).padStart(2,'0')}:${String(Math.floor(ticks/10)%60).padStart(2,'0')}.${ticks%10}`;
   }
-  $('best').textContent=time(best);
   const random=(min,max)=>min+Math.random()*(max-min);
   function makeWalls() {
     walls.forEach(w=>Composite.remove(engine.world,w));
@@ -78,30 +79,51 @@
     walls=[Bodies.rectangle(W/2,-50,W+200,100,options),Bodies.rectangle(W/2,H+50,W+200,100,options),Bodies.rectangle(-50,H/2,100,H+200,options),Bodies.rectangle(W+50,H/2,100,H+200,options)];
     Composite.add(engine.world,walls);
   }
+  function fitField() {
+    if(!viewWidth||!viewHeight)return;
+    worldPerPixel=Math.max(W/viewWidth,H/viewHeight);
+    fieldX=(viewWidth-W/worldPerPixel)/2;
+    fieldY=(viewHeight-H/worldPerPixel)/2;
+    cacheCursor();
+  }
   function layout() {
-    const rect=canvas.getBoundingClientRect(), oldH=H;arenaRect=rect;
+    const rect=canvas.getBoundingClientRect();arenaRect=rect;
     const dpr=Math.min(devicePixelRatio||1,2);
-    if(Math.abs(rect.width-viewWidth)<.01&&Math.abs(rect.height-viewHeight)<.01&&dpr===viewDpr)return;
+    if(!rect.width||!rect.height)return;
+    const sameSize=Math.abs(rect.width-viewWidth)<.01&&Math.abs(rect.height-viewHeight)<.01;
+    if(sameSize&&dpr===viewDpr)return;
     viewWidth=rect.width;viewHeight=rect.height;viewDpr=dpr;
-    H=1000*rect.height/rect.width;worldPerPixel=W/rect.width;cacheCursor();
-    canvas.width=Math.round(rect.width*dpr); canvas.height=Math.round(rect.height*dpr);
-    if(state==='running'||state==='armed') pause('Размер поля изменился. Продолжи, когда будешь готов.');
-    if(shapes.length) {
-      const dy=H/oldH;
-      player.y=Math.max(RADIUS,Math.min(H-RADIUS,player.y*dy));
-      shapes.forEach(body=>Body.setPosition(body,{x:body.position.x,y:Math.max(body.gameRadius+3,Math.min(H-body.gameRadius-3,body.position.y*dy))}));
+    fitField();
+    canvas.width=Math.round(rect.width*dpr);canvas.height=Math.round(rect.height*dpr);
+    if(!sameSize&&state==='running')pause('Размер экрана изменился. Продолжи, когда будешь готов.');
+    if((state==='paused'||state==='armed')&&shapes.length)keepPlayerSafe();
+    requestPaint();
+  }
+  const largestRadius=()=>34*settings.size;
+  function gridSlots() {
+    const radius=largestRadius()*1.1;
+    const spacing=2*radius+8;
+    const columns=Math.floor(W/spacing), rows=Math.floor(H/spacing);
+    const slots=[];
+    for(let row=0;row<rows;row++)for(let column=0;column<columns;column++){
+      const x=(W+(2*column-columns+1)*spacing)/2;
+      const y=(H+(2*row-rows+1)*spacing)/2;
+      if(Math.hypot(x-W/2,y-H/2)>radius+160)slots.push({x,y});
     }
-    makeWalls();
+    return slots;
   }
-  function available(x,y,r,clearPlayer=true) {
-    if(clearPlayer && Math.hypot(x-player.x,y-player.y)<r+120) return false;
-    return shapes.every(body=>Math.hypot(x-body.position.x,y-body.position.y)>r+body.gameRadius+18);
+  function available(x,y,r) {
+    const radius=r*1.1;
+    const clearance=Math.max(120,22*worldPerPixel*settings.cursorScale+24);
+    if(Math.hypot(x-player.x,y-player.y)<radius+clearance)return false;
+    return shapes.every(body=>Math.hypot(x-body.position.x,y-body.position.y)>radius+body.gameRadius+5);
   }
-  function findPosition(r,clearPlayer=true) {
-    const margin=r+22;
-    for(let i=0;i<250;i++) {
+  function findPosition(r) {
+    const margin=r*1.1+8;
+    if(H<=2*margin)return null;
+    for(let i=0;i<150;i++) {
       const x=random(margin,W-margin),y=random(margin,H-margin);
-      if(available(x,y,r,clearPlayer)) return {x,y};
+      if(available(x,y,r))return {x,y};
     }
     return null;
   }
@@ -116,15 +138,31 @@
     return body;
   }
   function scene() {
-    Composite.clear(engine.world,false); Engine.clear(engine);
-    shapes=[]; walls=[]; warning=null; trail=[]; elapsed=0;nextSpawn=12;spawnId=0;sceneMessage='';
-    player={x:W/2,y:H/2}; makeWalls();
-    for(let i=0;i<settings.count;i++) {
-      const r=random(19,34)*settings.size,position=findPosition(r);
-      if(position) createShape(position,r,i);
+    Composite.clear(engine.world,false);Engine.clear(engine);
+    shapes=[];walls=[];warning=null;trail=[];elapsed=0;nextSpawn=12;
+    // Pick a field for this run and keep its coordinates through rotations and resizes.
+    const preferredHeight=viewWidth&&viewHeight?W*viewHeight/viewWidth:600;
+    H=clamp(Math.round(preferredHeight/200)*200,400,1800);
+    let slots=gridSlots();
+    while(slots.length<settings.count){H+=200;slots=gridSlots();}
+    fitField();
+    player={x:W/2,y:H/2};makeWalls();
+    const radii=Array.from({length:settings.count},()=>random(19,34)*settings.size);
+    for(let i=0;i<radii.length;i++){
+      const position=findPosition(radii[i]);
+      if(!position)break;
+      createShape(position,radii[i],i);
     }
-    if(shapes.length<settings.count)sceneMessage=`Поместилось ${shapes.length} из ${settings.count} фигур. Уменьши размер или количество в настройках.`;
-    hud(true);
+    if(shapes.length!==settings.count){
+      for(const body of shapes)Composite.remove(engine.world,body);
+      shapes=[];
+      radii.forEach((r,index)=>{
+        const slot=Math.floor(random(0,slots.length));
+        const [point]=slots.splice(slot,1);
+        createShape({x:point.x+random(-2,2),y:point.y+random(-2,2)},r,index);
+      });
+    }
+    keepPlayerSafe();loadBest();hud(true);
   }
   function hud(force=false) {
     const tenth=Math.floor(elapsed*10);
@@ -137,21 +175,21 @@
     if(state==='intro'||state==='over') scene();
     state='armed';keys.clear();mousePickup=false;padPointer=null;overlay.hidden=true;arena.classList.remove('active');
     $('pause').disabled=false; $('pause').setAttribute('aria-label','Пауза');
-    notice.textContent=sceneMessage||(settings.touchbar?'Коснись панели под полем. Или нажми WASD / стрелки.':'Нажми на круг. Или начни клавишами WASD / стрелками.');syncPlayerMode();
-    canvas.focus({preventScroll:true});hud(true);
+    notice.textContent=settings.touchbar?'Коснись панели под полем. Или нажми WASD / стрелки.':'Нажми на круг. Или начни клавишами WASD / стрелками.';
+    syncPlayerMode();canvas.focus({preventScroll:true});hud(true);requestPaint();
   }
   function launch() {
-    state='running';last=0;accumulator=0;trail=[];
-    arena.classList.add('active');notice.textContent='';syncPlayerMode();hud(true);
+    state='running';last=null;accumulator=0;trail=[];
+    arena.classList.add('active');notice.textContent='';syncPlayerMode();hud(true);requestPaint();
   }
   function pause(reason='Вернись в свою точку и продолжай.') {
     if(state!=='running'&&state!=='armed') return;
-    state='paused';keys.clear();touchId=null;padPointer=null;padLast=null;mousePickup=false;warning=null;syncPlayerMode();touchpad.classList.remove('pressed');
+    state='paused';keys.clear();touchId=null;padPointer=null;padLast=null;mousePickup=false;syncPlayerMode();touchpad.classList.remove('pressed');
     overlay.hidden=false;arena.classList.remove('active');notice.textContent='';
     $('eyebrow').textContent='МОЖНО ВЫДОХНУТЬ';$('title').textContent='Пауза.';
     $('description').textContent=reason;$('action').innerHTML='Продолжить';
     $('hint').textContent='Время и фигуры остановлены';$('result').hidden=true;
-    $('pause').setAttribute('aria-label','Продолжить');hud(true);
+    $('pause').setAttribute('aria-label','Продолжить');hud(true);requestPaint();
   }
   function lose() {
     if(state!=='running') return;
@@ -165,60 +203,102 @@
     $('result').textContent=time(elapsed);$('result').hidden=false;
     $('action').innerHTML='Играть снова';
     $('hint').textContent='Начни заново. Найди свой ритм.';
-    $('pause').disabled=true;notice.textContent='';hud(true);
+    $('pause').disabled=true;notice.textContent='';hud(true);requestPaint();
   }
   function hits(a,b,body,vertices=body.vertices,center=body.position) {
     // Most obstacles are nowhere near the player's path. Reject them before edge tests.
     const extent=settings.player==='dot'?RADIUS:22*worldPerPixel*settings.cursorScale;
     const radius=body.gameRadius+1;
     if(Math.max(a.x,b.x)+extent<center.x-radius||Math.min(a.x,b.x)-extent>center.x+radius||Math.max(a.y,b.y)+extent<center.y-radius||Math.min(a.y,b.y)-extent>center.y+radius)return false;
-    if(settings.player==='dot')return body.circleRadius?geo.sweptCircleCircle(a,b,RADIUS,center,body.circleRadius):geo.sweptCirclePolygon(a,b,RADIUS,vertices);
-    const polygon=cursorPolygon(),outline=.6*worldPerPixel;
-    return body.circleRadius?geo.sweptPolygonCircle(a,b,polygon,center,body.circleRadius+outline):geo.sweptPolygonPolygon(a,b,polygon,vertices,outline);
+    const dot=settings.player==='dot';
+    const outline=.6*worldPerPixel;
+    if(body.circleRadius){
+      // The 64-sided body is between these circles. Only inspect the edges in the thin gap.
+      const radius=body.circleRadius;
+      const testCircle=r=>dot
+        ?geo.sweptCircleCircle(a,b,RADIUS,center,r)
+        :geo.sweptPolygonCircle(a,b,cursorPolygon(),center,r+outline);
+      if(!testCircle(radius+.002))return false;
+      if(testCircle(radius*Math.cos(Math.PI/64)-.002))return true;
+    }
+    if(dot)return geo.sweptCirclePolygon(a,b,RADIUS,vertices);
+    return geo.sweptPolygonPolygon(a,b,cursorPolygon(),vertices,outline);
   }
-  function movePlayer(p) {
-    const margin=settings.player==='dot'?RADIUS:0;
-    const next={x:Math.max(margin,Math.min(W-margin,p.x)),y:Math.max(margin,Math.min(H-margin,p.y))};
-    if(state==='running') {
-      if(shapes.some(body=>hits(player,next,body))) { lose();return; }
-      if(!reducedMotion) {trail.push({...player});if(trail.length>10) trail.shift();}
+  function boundPlayer(point,device=input) {
+    const isDot=settings.player==='dot';
+    const arrow=device!=='pointer'&&!isDot;
+    const inset=isDot ? RADIUS : (arrow ? .6*worldPerPixel*settings.cursorScale : 0);
+    const width=arrow?15*worldPerPixel*settings.cursorScale:inset;
+    const height=arrow?22*worldPerPixel*settings.cursorScale:inset;
+    return {x:clamp(point.x,inset,Math.max(inset,W-width)),y:clamp(point.y,inset,Math.max(inset,H-height))};
+  }
+  function keepPlayerSafe() {
+    const was=player;
+    const free=point=>!shapes.some(body=>hits(point,point,body));
+    const near=boundPlayer(was,'keyboard');
+    if(free(near)){player=near;return;}
+    for(let distance=8;distance<=Math.hypot(W,H);distance+=8){
+      for(let angle=0;angle<Math.PI*2;angle+=Math.PI/8){
+        const candidate=boundPlayer({x:near.x+Math.cos(angle)*distance,y:near.y+Math.sin(angle)*distance},'keyboard');
+        if(free(candidate)){player=candidate;return;}
+      }
+    }
+  }
+  function placePlayer(next) {
+    if(settings.player==='dot'&&!reducedMotion&&(player.x!==next.x||player.y!==next.y)){
+      trail.push(player);if(trail.length>10)trail.shift();
     }
     player=next;updateMarker();
+  }
+  function movePlayer(p) {
+    const next=boundPlayer(p);
+    if(shapes.some(body=>hits(player,next,body))){lose();return;}
+    placePlayer(next);
   }
   function simulate(dt,playing) {
     const parts=physics.substeps(shapes,dt);
     for(let i=0;i<parts;i++){simulateStep(dt/parts,playing);if(playing&&state!=='running')break;}
   }
   function simulateStep(dt,playing) {
+    const start=player;
+    let end=start;
+    if(playing&&keys.size){
+      const pressed=new Set(keys.values());
+      const dx=Number(pressed.has('right'))-Number(pressed.has('left'));
+      const dy=Number(pressed.has('down'))-Number(pressed.has('up'));
+      if(dx||dy){
+        const speed=330*dt/1000/Math.hypot(dx,dy);
+        end=boundPlayer({x:start.x+dx*speed,y:start.y+dy*speed});
+      }
+    }
     const playerExtent=settings.player==='dot'?RADIUS:22*worldPerPixel*settings.cursorScale;
     const before=playing?shapes.map(body=>{
-      const reach=body.gameRadius+playerExtent+10;
-      if(Math.abs(body.position.x-player.x)>reach||Math.abs(body.position.y-player.y)>reach)return null;
-      return {center:{...body.position},vertices:body.circleRadius?null:body.vertices.map(v=>({x:v.x,y:v.y}))};
+      const reach=body.gameRadius+playerExtent+12;
+      if(Math.abs(body.position.x-start.x)>reach||Math.abs(body.position.y-start.y)>reach)return null;
+      return {center:{...body.position},angle:body.angle,vertices:body.vertices.map(({x,y})=>({x,y}))};
     }):null;
-    Engine.update(engine,dt);
+    physics.advance(Matter,engine,dt);
     if(playing) {
       elapsed+=dt/1000;
-      let dx=0,dy=0;
-      if(keys.has('left'))dx--;
-      if(keys.has('right'))dx++;
-      if(keys.has('up'))dy--;
-      if(keys.has('down'))dy++;
-      if(dx||dy) {
-        const length=Math.hypot(dx,dy),speed=330*dt/1000;
-        movePlayer({x:player.x+dx/length*speed,y:player.y+dy/length*speed});
-        if(state!=='running')return;
-      }
-      for(let i=0;i<shapes.length;i++) {
+      for(let i=0;i<shapes.length;i++){
         const body=shapes[i],previous=before[i];
+        if(hits(end,end,body)){lose();return;}
         if(!previous)continue;
-        // Relative motion catches a shape crossing a stationary player within one physics step.
-        const relativeEnd={x:player.x-(body.position.x-previous.center.x),y:player.y-(body.position.y-previous.center.y)};
-        if(hits(player,player,body)||hits(player,relativeEnd,body,previous.vertices,previous.center)) {lose();return;}
+        const relativeEnd={x:end.x-(body.position.x-previous.center.x),y:end.y-(body.position.y-previous.center.y)};
+        if(hits(start,start,body,previous.vertices,previous.center)){lose();return;}
+        // Sweep both translations together; use the obstacle's midpoint angle for the short sweep.
+        const halfTurn=(body.angle-previous.angle)/2;
+        const cos=Math.cos(halfTurn),sin=Math.sin(halfTurn);
+        const vertices=halfTurn?previous.vertices.map(({x,y})=>{
+          const dx=x-previous.center.x,dy=y-previous.center.y;
+          return {x:previous.center.x+dx*cos-dy*sin,y:previous.center.y+dx*sin+dy*cos};
+        }):previous.vertices;
+        if(hits(start,relativeEnd,body,vertices,previous.center)){lose();return;}
       }
+      if(end!==start)placePlayer(end);
       if(settings.progression&&elapsed>=nextSpawn&&!warning&&shapes.length<Math.min(40,settings.count+14)) {
         const r=random(20,30)*settings.size,position=findPosition(r);
-        if(position) warning={...position,r,at:elapsed+1.4,id:spawnId++};
+        if(position) warning={...position,r,at:elapsed+1.4};
         else nextSpawn=elapsed+2;
       }
       if(warning&&elapsed>=warning.at) {
@@ -242,9 +322,16 @@
     });
   }
   function circle(x,y,r) {ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);}
+  function startRadius(){return Math.max(30,22*worldPerPixel);}
   function draw() {
-    ctx.setTransform(canvas.width/W,0,0,canvas.height/H,0,0);
+    if(!viewWidth||!viewHeight)return;
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.fillStyle='#080808';ctx.fillRect(0,0,canvas.width,canvas.height);
+    const pixelX=canvas.width/viewWidth,pixelY=canvas.height/viewHeight;
+    ctx.setTransform(pixelX/worldPerPixel,0,0,pixelY/worldPerPixel,fieldX*pixelX,fieldY*pixelY);
+    ctx.save();ctx.beginPath();ctx.rect(0,0,W,H);ctx.clip();
     ctx.fillStyle='#0c0c0c';ctx.fillRect(0,0,W,H);
+    if(fieldX>.5||fieldY>.5){ctx.strokeStyle='#565656';ctx.lineWidth=2*worldPerPixel;ctx.strokeRect(0,0,W,H);}
     const active=state==='running'||state==='armed';
     shapes.forEach(body=>{
       ctx.beginPath();
@@ -260,8 +347,8 @@
     }
     if(active||state==='over') {
       if(state==='armed'||mousePickup) {
-        circle(player.x,player.y,27);ctx.lineWidth=1;ctx.strokeStyle='#777';ctx.stroke();
-        ctx.beginPath();ctx.moveTo(player.x-40,player.y);ctx.lineTo(player.x-33,player.y);ctx.moveTo(player.x+33,player.y);ctx.lineTo(player.x+40,player.y);ctx.moveTo(player.x,player.y-40);ctx.lineTo(player.x,player.y-33);ctx.moveTo(player.x,player.y+33);ctx.lineTo(player.x,player.y+40);ctx.stroke();
+        const radius=state==='armed'?startRadius():8*worldPerPixel;
+        circle(player.x,player.y,radius);ctx.lineWidth=worldPerPixel;ctx.strokeStyle='#777';ctx.stroke();
       }
       if(settings.player==='dot'&&!reducedMotion&&state==='running') trail.forEach((p,i)=>{
         circle(p.x,p.y,1.5);ctx.fillStyle=`rgba(240,240,238,${i/trail.length*.18})`;ctx.fill();
@@ -274,30 +361,41 @@
         ctx.fillStyle='#090909';ctx.fill();ctx.strokeStyle='#eee';ctx.lineWidth=worldPerPixel;ctx.stroke();
       }
     }
+    ctx.restore();
+  }
+  function requestPaint() {
+    if(paintPending)return;
+    paintPending=true;requestAnimationFrame(frame);
+  }
+  function isAnimating() {
+    return !settingsDialog.open&&(state==='running'||(state==='intro'&&!reducedMotion));
   }
   function frame(now) {
-    const delta=last?Math.min(now-last,70):0;last=now;
-    if(!settingsDialog.open&&(state==='running'||(state==='intro'&&!reducedMotion))) {
-      accumulator+=delta;
-      while(accumulator>=STEP) {
-        const playing=state==='running';simulate(STEP,playing);accumulator-=STEP;
-        if(playing&&state!=='running'){accumulator=0;break;}
+    paintPending=false;
+    if(isAnimating()){
+      const delta=last===null?0:Math.min(now-last,70);
+      last=now;accumulator+=delta;
+      while(accumulator>=STEP&&isAnimating()){
+        simulate(STEP,state==='running');accumulator-=STEP;
       }
-    } else accumulator=0;
-    hud();draw();updateMarker();requestAnimationFrame(frame);
+    } else {last=null;accumulator=0;}
+    hud();draw();updateMarker();
+    if(isAnimating())requestPaint();
   }
   function position(event) {
     const rect=arenaRect||canvas.getBoundingClientRect();
-    return {x:(event.clientX-rect.left)/rect.width*W,y:(event.clientY-rect.top)/rect.height*H};
+    return {x:(event.clientX-rect.left-fieldX)*worldPerPixel,y:(event.clientY-rect.top-fieldY)*worldPerPixel};
   }
+  function insideField(p){return p.x>=0&&p.y>=0&&p.x<=W&&p.y<=H;}
   canvas.addEventListener('pointerdown',event=>{
     if(event.button!==0||settings.touchbar&&event.pointerType==='touch')return;
     const p=position(event);
     if(state==='armed') {
-      if(Math.hypot(p.x-player.x,p.y-player.y)<=30) {
+      if(insideField(p)&&Math.hypot(p.x-player.x,p.y-player.y)<=startRadius()
+        &&!shapes.some(body=>hits(player,p,body))) {
         input=event.pointerType==='touch'?'touch':'pointer';syncPlayerMode();
         if(input==='touch') {touchId=event.pointerId;canvas.setPointerCapture(event.pointerId);}
-        launch();movePlayer(p);
+        placePlayer(boundPlayer(p));launch();
       }
     } else if(state==='running'&&event.pointerType==='touch') {
       // A new touch cannot teleport to a distant point after lifting the finger.
@@ -311,6 +409,13 @@
     const samples=event.getCoalescedEvents?.()||[event];
     for(const sample of samples.length?samples:[event]) {
       const p=position(sample);
+      if(event.pointerType!=='touch'&&!insideField(p)) {
+        if(input==='pointer') {
+          movePlayer(p);
+          pause('Курсор вышел за поле. Вернись в свою точку.');
+        }
+        continue;
+      }
       if(event.pointerType!=='touch'&&input!=='pointer') {
         if(!controls.canPickUp(player,p,worldPerPixel)) {
           if(!mousePickup){mousePickup=true;syncPlayerMode();notice.textContent='Для мыши подведи указатель к игроку.';}
@@ -334,12 +439,13 @@
     if(event.key==='Escape') {event.preventDefault();if(state==='paused')arm();else pause();return;}
     const key=controls.directionKey(event);
     if(key&&(state==='running'||state==='armed')) {
-      event.preventDefault();input='keyboard';mousePickup=false;notice.textContent='';syncPlayerMode();keys.add(key);
+      event.preventDefault();input='keyboard';mousePickup=false;notice.textContent='';syncPlayerMode();
+      keys.set(controls.keyIdentity(event),key);
       if(state==='armed')launch();
     }
     if(event.key==='Enter'&&event.target===canvas&&(state==='intro'||state==='over'||state==='paused')) {event.preventDefault();arm();}
   });
-  window.addEventListener('keyup',event=>keys.delete(controls.directionKey(event)));
+  window.addEventListener('keyup',event=>keys.delete(controls.keyIdentity(event)));
   window.addEventListener('blur',()=>pause('Вкладка потеряла фокус. Игра ждёт тебя.'));
   document.addEventListener('visibilitychange',()=>{if(document.hidden)pause('Вкладка была скрыта. Продолжим?');});
   // Relative two-dimensional touchpad: lifting/repositioning never changes player position.
@@ -383,7 +489,7 @@
   $('settings-open').addEventListener('click',openSettings);
   $('settings-close').addEventListener('click',()=>settingsDialog.close());
   $('settings-cancel').addEventListener('click',()=>settingsDialog.close());
-  settingsDialog.addEventListener('close',()=>{last=0;accumulator=0;});
+  settingsDialog.addEventListener('close',()=>{last=null;accumulator=0;requestPaint();});
   settingsForm.addEventListener('input',updateForm);
   settingsForm.addEventListener('submit',event=>{
     event.preventDefault();
@@ -391,8 +497,10 @@
     if(!types.length){$('settings-status').textContent='Выбери хотя бы одну фигуру.';return;}
     settings=sanitize({count:$('setting-count').value,speed:$('setting-speed').value,size:$('setting-size').value,types,player:settingsForm.elements.player.value,cursorScale:$('setting-cursor-scale').value,showHitbox:$('setting-hitbox').checked,touchbar:$('setting-touchbar').checked,progression:$('setting-progression').checked});
     try {localStorage.setItem(SETTINGS_KEY,JSON.stringify(settings));}catch {}
-    loadBest();cacheCursor();touchbar.hidden=!settings.touchbar;syncPlayerMode();settingsDialog.close();state='intro';layout();arm();
+    touchbar.hidden=!settings.touchbar;settingsDialog.close();state='intro';layout();arm();
   });
   const observer=new ResizeObserver(layout);observer.observe(arena);
-  layout();scene();requestAnimationFrame(frame);
+  window.addEventListener('scroll',()=>{arenaRect=canvas.getBoundingClientRect();},{passive:true});
+  motionPreference.addEventListener?.('change',event=>{reducedMotion=event.matches;requestPaint();});
+  layout();scene();requestPaint();
 })();

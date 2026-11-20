@@ -9,18 +9,18 @@
 <meta name="description" content="bounce — минималистичная игра на реакцию. Уворачивайся от фигур и продержись как можно дольше.">
 <title>bounce — не касайся</title>
 <link rel="apple-touch-icon" href="./apple-touch-icon.png">
-<link rel="icon" href="./favicon.svg?v=3" type="image/svg+xml">
-<link rel="stylesheet" href="./style.css?v=3">
+<link rel="icon" href="./favicon.svg?v=4" type="image/svg+xml">
+<link rel="stylesheet" href="./style.css?v=4">
 <script defer src="./vendor/matter.min.js"></script>
-<script defer src="./geometry.js?v=3"></script>
-<script defer src="./physics.js?v=3"></script>
-<script defer src="./input.js?v=3"></script>
-<script defer src="./game.js?v=3"></script>
+<script defer src="./geometry.js?v=4"></script>
+<script defer src="./physics.js?v=4"></script>
+<script defer src="./input.js?v=4"></script>
+<script defer src="./game.js?v=4"></script>
 </head>
 <body>
 <main class="game">
 <header class="topbar">
-<a class="wordmark" href="./" aria-label="bounce, главная"><img class="brand-logo" src="./logo.svg?v=3" width="30" height="30" alt="">bounce</a>
+<a class="wordmark" href="./" aria-label="bounce, главная"><img class="brand-logo" src="./logo.svg?v=4" width="30" height="30" alt="">bounce</a>
 <div class="scores"><div><span class="label">ВРЕМЯ</span><span id="time" class="value">00:00.0</span></div><div><span class="label">РЕКОРД</span><span id="best" class="value secondary">00:00.0</span></div></div>
 <button id="settings-open" class="icon-button" aria-label="Настройки игры"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14M7 3v4M13 8v4M8 13v4"/></svg></button>
 <button id="pause" class="icon-button" aria-label="Пауза" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 5v10M13 5v10"/></svg></button>
@@ -73,7 +73,7 @@
 <label class="toggle"><input id="setting-touchbar" name="touchbar" type="checkbox"> Сенсорная панель под ареной</label>
 <p class="setting-help">Как трекпад: двигай пальцем под полем, чтобы не закрывать игрока. Можно отрывать палец и переставлять его без скачка.</p></fieldset>
 <label class="toggle progression"><input id="setting-progression" name="progression" type="checkbox" checked> Постепенно усложнять игру</label>
-<p class="setting-help">Выключи усложнение, чтобы количество и скорость оставались заданными. Рекорд сохраняется отдельно для каждого набора настроек.</p>
+<p class="setting-help">Выключи усложнение, чтобы количество и скорость оставались заданными. Рекорды учитывают настройки и размер арены.</p>
 <p id="settings-status" class="setting-help" role="status"></p>
 <button type="submit" class="action apply-button">Применить и начать заново</button>
 <button type="button" id="settings-cancel" class="cancel-button">Отмена</button>

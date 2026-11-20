@@ -25,3 +25,22 @@ dialog::backdrop{background:rgba(0,0,0,.78);backdrop-filter:blur(4px)}
 
 .player-marker{width:14px;height:22px}.game{padding-top:env(safe-area-inset-top,0px);padding-left:max(clamp(18px,4vw,64px),env(safe-area-inset-left,0px));padding-right:max(clamp(18px,4vw,64px),env(safe-area-inset-right,0px))}
 @media(max-width:650px){.game{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}}
+
+/* Keep the arena and trackpad reachable in a short mobile viewport. */
+@media(max-height:520px) and (orientation:landscape){
+  .game,.game:has(.touchbar:not([hidden])){min-height:0}
+  .game .topbar,.game:has(.touchbar:not([hidden])) .topbar{height:48px}
+  .game .bottom-bar,.game:has(.touchbar:not([hidden])) .bottom-bar{height:24px}
+  .touchbar{padding-top:6px}
+  .touchpad{height:clamp(46px,17dvh,66px)}
+  .arena .overlay,.game:has(.touchbar:not([hidden])) .overlay{padding:10px;overflow:auto}
+  .panel{margin:auto}
+  .game .arena h1,.game:has(.touchbar:not([hidden])) .arena h1{font-size:32px;margin-bottom:6px}
+  .eyebrow,.description{margin-bottom:8px}
+  .description{font-size:13px;line-height:1.35}
+  .hint{margin-top:7px}
+  .result{font-size:24px;margin:0 0 8px}
+  .arena .action{padding:8px 16px}
+  .arena-meta{top:11px}
+  .notice{bottom:12px}
+}

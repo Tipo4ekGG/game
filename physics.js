@@ -21,6 +21,41 @@
     // At most 1.5 world units of travel per step, including rotating corners.
     return Math.max(1,Math.min(12,Math.ceil(travel/1.5)));
   }
-  const api={createEngine,createBody,substeps,BODY_OPTIONS,OPTIONS};
+  // Matter can leave a residual overlap when one body has several contacts.
+  // Check the final positions, after the impulse solver has handled the bounce.
+  const correctionDetectors=new WeakMap();
+  function advance(Matter,engine,dt){
+    Matter.Engine.update(engine,dt);
+    if(!engine.pairs.list.some(pair=>pair.isActive))return;
+    const {Detector,Composite,Collision,Body}=Matter;
+    let detector=correctionDetectors.get(engine);
+    if(!detector){
+      detector=Detector.create();
+      correctionDetectors.set(engine,detector);
+    }
+    Detector.setBodies(detector,Composite.allBodies(engine.world));
+    for(let pass=0;pass<8;pass++){
+      let corrected=false;
+      for(const candidate of Detector.collisions(detector)){
+        const collision=Collision.collides(candidate.bodyA,candidate.bodyB);
+        if(!collision||collision.depth<=.015)continue;
+        const {bodyA,bodyB,normal,depth}=collision;
+        const inverseMass=bodyA.inverseMass+bodyB.inverseMass;
+        if(!inverseMass)continue;
+        const correction=depth/inverseMass;
+        if(!bodyA.isStatic){
+          const distance=correction*bodyA.inverseMass;
+          Body.translate(bodyA,{x:normal.x*distance,y:normal.y*distance});
+        }
+        if(!bodyB.isStatic){
+          const distance=correction*bodyB.inverseMass;
+          Body.translate(bodyB,{x:-normal.x*distance,y:-normal.y*distance});
+        }
+        corrected=true;
+      }
+      if(!corrected)break;
+    }
+  }
+  const api={createEngine,createBody,substeps,advance,BODY_OPTIONS,OPTIONS};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.BouncePhysics=api;
 })(typeof globalThis==='undefined'?this:globalThis);
