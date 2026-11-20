@@ -3,26 +3,32 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="bounce">
 <meta name="theme-color" content="#0c0c0c">
-<meta name="description" content="Рикошет — минималистичная игра на реакцию. Уворачивайся от фигур и продержись как можно дольше.">
-<title>Рикошет — не касайся</title>
-<link rel="icon" href="./favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="./style.css">
+<meta name="description" content="bounce — минималистичная игра на реакцию. Уворачивайся от фигур и продержись как можно дольше.">
+<title>bounce — не касайся</title>
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<link rel="icon" href="./favicon.svg?v=3" type="image/svg+xml">
+<link rel="stylesheet" href="./style.css?v=3">
 <script defer src="./vendor/matter.min.js"></script>
-<script defer src="./geometry.js"></script>
-<script defer src="./game.js"></script>
+<script defer src="./geometry.js?v=3"></script>
+<script defer src="./physics.js?v=3"></script>
+<script defer src="./input.js?v=3"></script>
+<script defer src="./game.js?v=3"></script>
 </head>
 <body>
 <main class="game">
 <header class="topbar">
-<a class="wordmark" href="./" aria-label="Рикошет, главная"><span class="brand-icon" aria-hidden="true">◈</span> РИКОШЕТ<span class="edition"> / 01</span></a>
+<a class="wordmark" href="./" aria-label="bounce, главная"><img class="brand-logo" src="./logo.svg?v=3" width="30" height="30" alt="">bounce</a>
 <div class="scores"><div><span class="label">ВРЕМЯ</span><span id="time" class="value">00:00.0</span></div><div><span class="label">РЕКОРД</span><span id="best" class="value secondary">00:00.0</span></div></div>
 <button id="settings-open" class="icon-button" aria-label="Настройки игры"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14M7 3v4M13 8v4M8 13v4"/></svg></button>
 <button id="pause" class="icon-button" aria-label="Пауза" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 5v10M13 5v10"/></svg></button>
 </header>
 <section id="arena" class="arena" aria-label="Игровое поле">
-<canvas id="canvas" tabindex="0" aria-label="Уворачивайтесь от фигур курсором, пальцем или стрелками клавиатуры. Escape — пауза."></canvas>
+<canvas id="canvas" tabindex="0" aria-label="Уворачивайтесь от фигур курсором, пальцем или WASD и стрелками клавиатуры. Escape — пауза."></canvas>
 <div class="arena-meta" aria-hidden="true"><span id="mode">ПОЛЕ СВОБОДНО</span><span id="count">08 ФИГУР</span></div>
+<svg id="player-marker" class="player-marker" viewBox="0 0 14 22" aria-hidden="true" hidden><path class="marker-arrow" d="M0 0V18L4.5 13.5 8 21 11 19.5 7.5 12H14Z"/><circle class="marker-dot" cx="0" cy="0" r="5"/></svg>
 <div id="overlay" class="overlay">
 <div class="panel">
 <p id="eyebrow" class="eyebrow">ИГРА НА РЕАКЦИЮ</p>
@@ -30,10 +36,15 @@
 <p id="description" class="description">Ты — курсор. Всё остальное — препятствия.<br>Двигайся и оставайся в игре.</p>
 <div id="result" class="result" hidden></div>
 <button id="action" class="action">Начать игру</button>
-<p id="hint" class="hint">Курсор · касание · клавиши со стрелками</p>
+<p id="hint" class="hint">Курсор · WASD · стрелки · касание</p>
 </div>
 </div>
 <div id="notice" class="notice" role="status" aria-live="polite"></div>
+</section>
+<section id="touchbar" class="touchbar" aria-label="Сенсорная панель управления" hidden>
+<div id="touchpad" class="touchpad" tabindex="0" role="group" aria-label="Двигайте пальцем для управления игроком на арене">
+<span class="pad-cross" aria-hidden="true"></span><span id="pad-hint">Веди пальцем здесь — курсор выше</span>
+</div>
 </section>
 <footer class="bottom-bar"><p id="player-label">ТЫ — СИСТЕМНЫЙ КУРСОР</p><p id="footer-hint">УВОРАЧИВАЙСЯ. ДЕРЖИСЬ ДОЛЬШЕ.</p><span class="keyboard-hint"><kbd>ESC</kbd> ПАУЗА</span></footer>
 </main>
@@ -55,9 +66,12 @@
 </div></fieldset>
 <fieldset><legend>За кого играешь</legend><div class="player-options"><label><input name="player" type="radio" value="cursor" checked> Родной курсор</label><label><input name="player" type="radio" value="dot"> Точка</label></div></fieldset>
 <div id="cursor-settings"><p class="setting-help" id="cursor-help">Системная стрелка остаётся видимой. Касания считаются по примерному контуру стандартной стрелки macOS. Браузер не определяет её системный размер.</p>
-<label class="range-label" for="setting-cursor-scale">Масштаб области курсора <output id="cursor-scale-output" for="setting-cursor-scale">1×</output></label>
-<input id="setting-cursor-scale" name="cursorScale" type="range" min="1" max="3" step="0.25" value="1" aria-describedby="cursor-help">
+<label class="range-label" for="setting-cursor-scale">Масштаб области курсора <output id="cursor-scale-output" for="setting-cursor-scale">0.75×</output></label>
+<input id="setting-cursor-scale" name="cursorScale" type="range" min="0.5" max="3" step="0.25" value="0.75" aria-describedby="cursor-help">
 <label class="toggle"><input id="setting-hitbox" name="showHitbox" type="checkbox"> Показывать область касания</label></div>
+<fieldset class="touch-options"><legend>Управление на телефоне</legend>
+<label class="toggle"><input id="setting-touchbar" name="touchbar" type="checkbox"> Сенсорная панель под ареной</label>
+<p class="setting-help">Как трекпад: двигай пальцем под полем, чтобы не закрывать игрока. Можно отрывать палец и переставлять его без скачка.</p></fieldset>
 <label class="toggle progression"><input id="setting-progression" name="progression" type="checkbox" checked> Постепенно усложнять игру</label>
 <p class="setting-help">Выключи усложнение, чтобы количество и скорость оставались заданными. Рекорд сохраняется отдельно для каждого набора настроек.</p>
 <p id="settings-status" class="setting-help" role="status"></p>
