@@ -21,7 +21,7 @@ function launch(settings = {}, dimensions = {width: 1000, height: 600}, seed = 1
     if (elements.has(id)) return elements.get(id);
     const listeners = new Map();
     const element = {
-      id, hidden: id==='result'||id==='impact-preview', textContent: '', style: {},
+      id, hidden: id==='result'||id==='impact-preview', textContent: '', style: {}, dataset: {},
       width: 544, height: 186,
       classList: {add() {}, remove() {}, toggle() {}},
       toggleAttribute(name, value) { this[name] = value; },
@@ -57,35 +57,37 @@ function launch(settings = {}, dimensions = {width: 1000, height: 600}, seed = 1
   }, {filename: 'game.js'});
   return {
     get, storage, draws: () => draws,
-    arm: () => get('action').dispatch('click'),
+    activateAction: () => get('action').dispatch('click', {detail: 0}),
+    startWithMouse: (x = 500, y = 300) => get('action').dispatch('click', {
+      detail: 1, pointerType: 'mouse', clientX: x, clientY: y
+    }),
     clickArena: (x, y) => get('canvas').dispatch('pointerdown', {button: 0, pointerType: 'mouse', clientX: x, clientY: y}),
     frame(now) { const callback = pendingFrame; pendingFrame = null; callback?.(now); },
     resize(width, height) { Object.assign(dimensions, {width, height}); resize(); },
     key(type, code, key = code) { windowEvents.get(type)({code, key, preventDefault() {}}); },
-    mode: () => get('mode').textContent,
+    state: () => get('arena').dataset.state,
     obstacles: () => engine.world.bodies.filter(body => !body.isStatic)
   };
 }
 
 const oneCircle = {count: 1, types: [0], player: 'dot', progression: false};
-const playing = 'СВОИ ПРАВИЛА';
-const ended = 'ПОПЫТКА ЗАВЕРШЕНА';
 const {Body, Collision} = Matter;
 
 {
   const game = launch({...oneCircle,lossAnimation:true});
-  game.arm();
+  game.activateAction();
+  assert.equal(game.state(), 'running', 'activating Start once must start the attempt');
   const [body] = game.obstacles();
   Body.setPosition(body, {x: 505.2 + body.circleRadius, y: 300});
   Body.setVelocity(body, {x: -2, y: 0});
   game.key('keydown', 'KeyA', 'a');
   game.frame(10);
   game.frame(20);
-  assert.equal(game.mode(), playing, 'outrunning a circle must not cause a phantom collision');
+  assert.equal(game.state(), 'running', 'outrunning a circle must not cause a phantom collision');
   game.key('keyup', 'KeyA', 'a');
   game.key('keydown', 'KeyD', 'd');
   game.frame(30);
-  assert.equal(game.mode(), ended, 'moving back into the circle must still cause a collision');
+  assert.equal(game.state(), 'impact', 'moving back into the circle must still cause a collision');
   assert.equal(game.get('overlay').hidden, true, 'the game over panel must wait for the animation');
   const frozenTime = game.get('time').textContent;
   const collisionX = body.position.x;
@@ -104,18 +106,18 @@ const {Body, Collision} = Matter;
   assert.equal(launch(oneCircle, undefined, 1, game.storage).get('best').textContent, game.get('best').textContent);
   const otherArena = launch(oneCircle, {width: 400, height: 700}, 1, game.storage);
   assert.equal(otherArena.get('best').textContent, '00:00.0', 'a different arena must start with its own record');
-  game.arm();
+  game.activateAction();
+  assert.equal(game.state(), 'running', 'activating Play again once must start a new attempt');
   assert.equal(game.get('impact-preview').hidden, true, 'restarting must clear the previous impact preview');
 }
 
 {
   const game = launch({...oneCircle,count:2,types:[0,2],lossAnimation:true});
-  game.arm();
+  game.startWithMouse();
   const [circle,triangle] = game.obstacles();
   Body.setPosition(circle,{x:570,y:300});
   Body.setPosition(triangle,{x:710,y:430});
   Body.setVelocity(triangle,{x:0,y:0});
-  game.clickArena(500,300);
   game.get('canvas').dispatch('pointermove',{pointerType:'mouse',clientX:650,clientY:300});
   game.frame(10);
   for(let now=26;now<=874;now+=16)game.frame(now);
@@ -138,10 +140,9 @@ const {Body, Collision} = Matter;
 
 for(const [setting,reducedMotion] of [[{},false],[{lossAnimation:false},false],[{lossAnimation:true},true]]){
   const game = launch({...oneCircle,...setting}, undefined, 1, undefined, reducedMotion);
-  game.arm();
+  game.startWithMouse();
   const [body] = game.obstacles();
   Body.setPosition(body, {x: 530, y: 300});
-  game.clickArena(500, 300);
   game.get('canvas').dispatch('pointermove', {pointerType: 'mouse', clientX: 650, clientY: 300});
   assert.equal(game.get('overlay').hidden, false, 'with loss effects disabled the result must appear immediately');
   assert.equal(game.get('impact-preview').hidden, false, 'the contact information must be visible without effects');
@@ -152,22 +153,21 @@ for(const [setting,reducedMotion] of [[{},false],[{lossAnimation:false},false],[
 
 {
   const game = launch(oneCircle);
-  game.arm();
+  game.startWithMouse();
   const [body] = game.obstacles();
   Body.setPosition(body, {x: 500, y: 370});
-  game.clickArena(500, 300);
-  assert.equal(game.mode(), playing);
+  assert.equal(game.state(), 'running');
   game.resize(1000, 160);
-  assert.equal(game.mode(), 'ПАУЗА');
-  game.arm();
+  assert.equal(game.state(), 'paused');
+  game.activateAction();
   game.clickArena(500, 80);
-  assert.equal(game.mode(), playing, 'resuming at the center after resizing must work');
+  assert.equal(game.state(), 'running', 'resuming at the center after resizing must work');
   assert.equal(body.position.y, 370, 'resizing must preserve obstacle coordinates');
 }
 
 for (let seed = 63000; seed < 63020; seed++) {
   const game = launch({count: 30, size: 2, types: [2]}, {width: 1200, height: 500}, seed);
-  game.arm();
+  game.activateAction();
   const bodies = game.obstacles();
   assert.equal(bodies.length, 30, 'dense fields must start with the requested figure count');
   for (const [i, body] of bodies.entries()) {
@@ -177,8 +177,8 @@ for (let seed = 63000; seed < 63020; seed++) {
 
 {
   const game = launch(oneCircle);
-  game.arm();
   game.key('keydown', 'KeyD', 'd');
+  assert.equal(game.state(), 'running', 'WASD must start an attempt directly');
   game.key('keydown', 'ArrowRight');
   game.frame(10);
   game.frame(20);
@@ -196,12 +196,31 @@ for (let seed = 63000; seed < 63020; seed++) {
 }
 
 {
-  const game = launch({...oneCircle, player: 'cursor', touchbar: true});
-  game.arm();
+  const game = launch(oneCircle);
+  const canvas = game.get('canvas');
+  const marker = game.get('player-marker');
+  const touch = {pointerType: 'touch', pointerId: 1, button: 0, preventDefault() {}};
+  game.get('action').dispatch('pointerdown', {...touch, clientX: 500, clientY: 300});
+  assert.equal(game.state(), 'running', 'one tap on Start must start a touch attempt');
+  canvas.dispatch('pointerup', {...touch, type: 'pointerup'});
+  assert.equal(game.state(), 'running', 'releasing a tap on Start must keep the attempt running');
   Body.setPosition(game.obstacles()[0], {x: 250, y: 100});
+  const before = marker.style.transform;
+  canvas.dispatch('pointerdown', {...touch, clientX: 750, clientY: 400});
+  assert.equal(marker.style.transform, before, 'touching elsewhere must keep the player in place');
+  canvas.dispatch('pointermove', {...touch, clientX: 770, clientY: 400});
+  assert.notEqual(marker.style.transform, before, 'dragging after a tap must move the player');
+  canvas.dispatch('pointerup', {...touch, type: 'pointerup'});
+  assert.equal(game.state(), 'paused', 'releasing an active drag must pause the attempt');
+}
+
+{
+  const game = launch({...oneCircle, player: 'cursor', touchbar: true});
   const pad = game.get('touchpad');
   const marker = game.get('player-marker');
   pad.dispatch('pointerdown', {button: 0, pointerId: 1, clientX: 200, clientY: 600, preventDefault() {}});
+  assert.equal(game.state(), 'running', 'a trackpad gesture must start an attempt');
+  Body.setPosition(game.obstacles()[0], {x: 250, y: 100});
   pad.dispatch('pointermove', {pointerId: 1, clientX: 220, clientY: 610});
   assert(marker.style.transform.startsWith('translate3d(528px,314px,'), 'saved settings without sensitivity must use the original movement');
   pad.dispatch('pointermove', {pointerId: 1, clientX: 220, clientY: 900});
@@ -214,7 +233,7 @@ for (let seed = 63000; seed < 63020; seed++) {
 
 for(const [value,x,y] of [[.5,514,307],[2,556,328]]){
   const game = launch({...oneCircle,touchbar:true,padSensitivity:value});
-  game.arm();
+  game.activateAction();
   Body.setPosition(game.obstacles()[0],{x:250,y:100});
   const pad=game.get('touchpad');
   pad.dispatch('pointerdown',{button:0,pointerId:1,clientX:200,clientY:600,preventDefault() {}});

@@ -2,7 +2,7 @@
   'use strict';
   const $ = id => document.getElementById(id);
   const canvas=$('canvas'), ctx=canvas.getContext('2d'), arena=$('arena');
-  const overlay=$('overlay'), notice=$('notice');
+  const overlay=$('overlay'), notice=$('notice'), action=$('action');
   const STEP=1000/120, RADIUS=5, SETTINGS_KEY='bounce.settings.v3';
   const geo=window.GameGeometry;
   if(!window.Matter || !geo || !window.BouncePhysics || !window.BounceInput) {
@@ -68,14 +68,13 @@
     arena.classList.toggle('native-cursor',settings.player==='cursor'&&input==='pointer');
     arena.classList.toggle('mouse-pickup',mousePickup);
     updateMarker();
-    $('player-label').textContent=settings.player==='cursor'?'ТЫ — СИСТЕМНЫЙ КУРСОР':'ТЫ — БЕЛАЯ ТОЧКА';
-    if(state==='intro')$('description').innerHTML=(settings.player==='cursor'?'Ты — курсор.':'Ты — точка.')+' Всё остальное — препятствия.<br>Двигайся и оставайся в игре.';
   }
   const {Engine,Bodies,Body,Composite}=Matter;
   const engine=physics.createEngine(Matter);
   let W=1000,H=600,state='intro',shapes=[],walls=[],elapsed=0,best=0,nextSpawn=12;
   let last=null,accumulator=0,warning=null,lastHud=-1;
-  let player={x:W/2,y:H/2},trail=[],keys=new Map(),input='pointer',touchId=null;
+  let player={x:W/2,y:H/2},trail=[],keys=new Map(),input='pointer';
+  let directTouch=null;
   const motionPreference=matchMedia('(prefers-reduced-motion: reduce)');
   let reducedMotion=motionPreference.matches;
   touchbar.hidden=!settings.touchbar;syncPlayerMode();
@@ -111,7 +110,7 @@
     requestPaint();
   }
   const largestRadius=()=>34*settings.size;
-  function gridSlots() {
+  function gridSlots(start,clearance) {
     const radius=largestRadius()*1.1;
     const spacing=2*radius+8;
     const columns=Math.floor(W/spacing), rows=Math.floor(H/spacing);
@@ -119,7 +118,7 @@
     for(let row=0;row<rows;row++)for(let column=0;column<columns;column++){
       const x=(W+(2*column-columns+1)*spacing)/2;
       const y=(H+(2*row-rows+1)*spacing)/2;
-      if(Math.hypot(x-W/2,y-H/2)>radius+160)slots.push({x,y});
+      if(Math.hypot(x-start.x,y-start.y)>radius+clearance)slots.push({x,y});
     }
     return slots;
   }
@@ -148,17 +147,25 @@
     shapes.push(body); Composite.add(engine.world,body);
     return body;
   }
-  function scene() {
+  function scene(pointerEvent=null) {
     Composite.clear(engine.world,false);Engine.clear(engine);
     shapes=[];walls=[];warning=null;trail=[];elapsed=0;nextSpawn=12;impact=null;
     impactPreview.hidden=true;arena.classList.remove('impact','result-shown');
     // Pick a field for this run and keep its coordinates through rotations and resizes.
     const preferredHeight=viewWidth&&viewHeight?W*viewHeight/viewWidth:600;
     H=clamp(Math.round(preferredHeight/200)*200,400,1800);
-    let slots=gridSlots();
-    while(slots.length<settings.count){H+=200;slots=gridSlots();}
-    fitField();
-    player={x:W/2,y:H/2};makeWalls();
+    let slots, pointerStart=false;
+    while(true){
+      fitField();
+      const target=pointerEvent?position(pointerEvent):null;
+      pointerStart=target!==null&&insideField(target);
+      player=pointerStart?boundPlayer(target,'pointer'):{x:W/2,y:H/2};
+      const clearance=clamp(22*worldPerPixel*settings.cursorScale+24,160,300);
+      slots=gridSlots(player,clearance);
+      if(slots.length>=settings.count)break;
+      H+=200;
+    }
+    makeWalls();
     const radii=Array.from({length:settings.count},()=>random(19,34)*settings.size);
     for(let i=0;i<radii.length;i++){
       const position=findPosition(radii[i]);
@@ -174,33 +181,50 @@
         createShape({x:point.x+random(-2,2),y:point.y+random(-2,2)},r,index);
       });
     }
-    keepPlayerSafe();loadBest();hud(true);
+    if(!pointerStart)keepPlayerSafe();
+    loadBest();hud(true);
+    return pointerStart;
   }
   function hud(force=false) {
+    if(force)arena.dataset.state=state;
     const tenth=Math.floor(elapsed*10);
-    if(!force&&tenth===lastHud) return;
-    lastHud=tenth; $('time').textContent=time(elapsed);
-    $('count').textContent=`${String(shapes.length).padStart(2,'0')} ФИГУР`;
-    $('mode').textContent=state==='running'?(settings.progression?`УРОВЕНЬ ${String(1+Math.floor(elapsed/12)).padStart(2,'0')}`:'СВОИ ПРАВИЛА'):state==='armed'?'ЗАЙМИ ПОЗИЦИЮ':state==='paused'?'ПАУЗА':(state==='over'||state==='impact')?'ПОПЫТКА ЗАВЕРШЕНА':'ПОЛЕ СВОБОДНО';
+    if(!force&&tenth===lastHud)return;
+    lastHud=tenth;$('time').textContent=time(elapsed);
+  }
+  function showIntro() {
+    state='intro';overlay.hidden=false;arena.classList.remove('active');
+    $('pause').disabled=true;$('pause').setAttribute('aria-label','Пауза');
+    $('title').textContent='Не касайся.';$('description').hidden=true;
+    $('result').hidden=true;action.textContent='Старт';
+    $('hint').textContent=settings.touchbar?'Мышь · WASD · трекпад под ареной':'Мышь · WASD · касание';
+    $('hint').hidden=false;notice.textContent='';scene();requestPaint();
   }
   function arm() {
-    if(state==='intro'||state==='over') scene();
     state='armed';keys.clear();mousePickup=false;padPointer=null;overlay.hidden=true;arena.classList.remove('active');
-    $('pause').disabled=false; $('pause').setAttribute('aria-label','Пауза');
-    notice.textContent=settings.touchbar?'Коснись панели под полем. Или нажми WASD / стрелки.':'Нажми на круг. Или начни клавишами WASD / стрелками.';
+    $('pause').disabled=false;$('pause').setAttribute('aria-label','Пауза');
+    notice.textContent=settings.touchbar?'Коснись трекпада или нажми WASD.':'Нажми на круг или используй WASD.';
     syncPlayerMode();canvas.focus({preventScroll:true});hud(true);requestPaint();
   }
   function launch() {
     state='running';last=null;accumulator=0;trail=[];
-    arena.classList.add('active');notice.textContent='';syncPlayerMode();hud(true);requestPaint();
+    overlay.hidden=true;arena.classList.add('active');notice.textContent='';
+    $('pause').disabled=false;$('pause').setAttribute('aria-label','Пауза');
+    canvas.focus({preventScroll:true});syncPlayerMode();hud(true);requestPaint();
   }
-  function pause(reason='Вернись в свою точку и продолжай.') {
-    if(state!=='running'&&state!=='armed') return;
-    state='paused';keys.clear();touchId=null;padPointer=null;padLast=null;mousePickup=false;syncPlayerMode();touchpad.classList.remove('pressed');
+  function startAttempt(device,event=null) {
+    if(state!=='intro'&&state!=='over')return;
+    keys.clear();directTouch=null;padPointer=null;padLast=null;mousePickup=false;
+    const pointerStart=scene(device==='pointer'?event:null);
+    input=device==='pointer'&&!pointerStart?'keyboard':device;
+    launch();
+  }
+  function pause(reason='Выбери «Продолжить», чтобы вернуться к попытке.') {
+    if(state!=='running'&&state!=='armed')return;
+    state='paused';keys.clear();directTouch=null;padPointer=null;padLast=null;mousePickup=false;
+    syncPlayerMode();touchpad.classList.remove('pressed');
     overlay.hidden=false;arena.classList.remove('active');notice.textContent='';
-    $('eyebrow').textContent='МОЖНО ВЫДОХНУТЬ';$('title').textContent='Пауза.';
-    $('description').textContent=reason;$('action').innerHTML='Продолжить';
-    $('hint').textContent='Время и фигуры остановлены';$('result').hidden=true;
+    $('title').textContent='Пауза';$('description').textContent=reason;$('description').hidden=false;
+    action.textContent='Продолжить';$('hint').hidden=true;$('result').hidden=true;
     $('pause').setAttribute('aria-label','Продолжить');hud(true);requestPaint();
   }
   function describeImpact(contact) {
@@ -216,7 +240,7 @@
     $('best').textContent=time(best);
     impact={...contact,record,startedAt:null,phase:0,blasted:false,particles:[]};
     player=contact.origin;
-    state='impact';keys.clear();touchId=null;padPointer=null;padLast=null;mousePickup=false;warning=null;
+    state='impact';keys.clear();directTouch=null;padPointer=null;padLast=null;mousePickup=false;warning=null;
     syncPlayerMode();touchpad.classList.remove('pressed');arena.classList.remove('active');arena.classList.add('impact');
     $('pause').disabled=true;$('settings-open').disabled=true;notice.textContent='';hud(true);
     if(!playsLossAnimation())finishImpact();
@@ -227,12 +251,12 @@
     state='over';arena.classList.remove('impact');arena.classList.add('result-shown');
     last=now;accumulator=0;
     $('settings-open').disabled=false;
-    overlay.hidden=false;$('eyebrow').textContent=impact.record?'ЛИЧНЫЙ РЕКОРД':'СТОЛКНОВЕНИЕ';
-    $('title').textContent=impact.record?'Новая планка.':'Ещё раз?';
-    $('description').textContent=describeImpact(impact);
+    overlay.hidden=false;
+    $('title').textContent=impact.record?'Новый рекорд':'Столкновение';
+    $('description').textContent=describeImpact(impact);$('description').hidden=false;
     $('result').textContent=time(elapsed);$('result').hidden=false;
     impactPreview.hidden=false;drawImpactPreview();
-    $('action').textContent='Играть снова';$('hint').textContent='';
+    action.textContent='Играть снова';$('hint').hidden=true;
     if(!document.hidden&&canvas===document.activeElement)$('action').focus({preventScroll:true});
     requestPaint();
   }
@@ -605,29 +629,42 @@
     return {x:(event.clientX-rect.left-fieldX)*worldPerPixel,y:(event.clientY-rect.top-fieldY)*worldPerPixel};
   }
   function insideField(p){return p.x>=0&&p.y>=0&&p.x<=W&&p.y<=H;}
+  function captureTouch(event) {
+    directTouch={id:event.pointerId,finger:position(event),origin:player,moved:false};
+    input='touch';keys.clear();mousePickup=false;syncPlayerMode();
+    canvas.setPointerCapture(event.pointerId);
+  }
   canvas.addEventListener('pointerdown',event=>{
     if(event.button!==0||settings.touchbar&&event.pointerType==='touch')return;
-    const p=position(event);
-    if(state==='armed') {
-      if(insideField(p)&&Math.hypot(p.x-player.x,p.y-player.y)<=startRadius()
-        &&!shapes.some(body=>hits(player,p,body))) {
-        input=event.pointerType==='touch'?'touch':'pointer';syncPlayerMode();
-        if(input==='touch') {touchId=event.pointerId;canvas.setPointerCapture(event.pointerId);}
-        placePlayer(boundPlayer(p));launch();
-      }
-    } else if(state==='running'&&event.pointerType==='touch') {
-      // A new touch cannot teleport to a distant point after lifting the finger.
-      if(touchId===null)pause('Коснись своей точки, чтобы продолжить.');
+    const point=position(event);
+    if(!insideField(point))return;
+    const touch=event.pointerType==='touch';
+    if(state==='armed'&&Math.hypot(point.x-player.x,point.y-player.y)<=startRadius()
+      &&!shapes.some(body=>hits(player,point,body))){
+      if(touch)captureTouch(event);
+      else {input='pointer';placePlayer(boundPlayer(point));}
+      launch();
+    } else if(state==='running'&&touch&&!directTouch){
+      captureTouch(event);
     }
   });
   const pointerMoveEvent='onpointerrawupdate' in window?'pointerrawupdate':'pointermove';
   canvas.addEventListener(pointerMoveEvent,event=>{
     if(state!=='running')return;
-    if(event.pointerType==='touch'&&(settings.touchbar||event.pointerId!==touchId))return;
+    const touch=event.pointerType==='touch';
+    if(touch&&event.pointerId!==directTouch?.id)return;
     const samples=event.getCoalescedEvents?.()||[event];
     for(const sample of samples.length?samples:[event]) {
       const p=position(sample);
-      if(event.pointerType!=='touch'&&!insideField(p)) {
+      if(touch){
+        const {finger,origin}=directTouch;
+        const dx=p.x-finger.x,dy=p.y-finger.y;
+        if(Math.hypot(dx,dy)>2*worldPerPixel)directTouch.moved=true;
+        movePlayer({x:origin.x+dx,y:origin.y+dy});
+        if(state!=='running')break;
+        continue;
+      }
+      if(!insideField(p)) {
         if(input==='pointer') {
           movePlayer(p);
           pause('Курсор вышел за поле. Вернись в свою точку.');
@@ -635,35 +672,56 @@
         }
         continue;
       }
-      if(event.pointerType!=='touch'&&input!=='pointer') {
+      if(input!=='pointer') {
         if(!controls.canPickUp(player,p,worldPerPixel)) {
           if(!mousePickup){mousePickup=true;syncPlayerMode();notice.textContent='Для мыши подведи указатель к игроку.';}
           continue;
         }
         mousePickup=false;notice.textContent='';
       }
-      const nextInput=event.pointerType==='touch'?'touch':'pointer';
-      if(input!==nextInput){input=nextInput;syncPlayerMode();}
+      if(input!=='pointer'){input='pointer';directTouch=null;syncPlayerMode();}
       keys.clear();movePlayer(p);if(state!=='running')break;
     }
   },{passive:true});
-  function endTouch(event) {if(event.pointerId===touchId){touchId=null;pause('Палец отпущен. Вернись в свою точку.');}}
+  function endTouch(event) {
+    if(event.pointerId!==directTouch?.id)return;
+    const moved=directTouch.moved;
+    directTouch=null;
+    if(moved||event.type!=='pointerup')pause('Касание закончилось. Продолжи, когда будешь готов.');
+  }
   canvas.addEventListener('pointerup',endTouch);canvas.addEventListener('pointercancel',endTouch);
   canvas.addEventListener('lostpointercapture',endTouch);
   canvas.addEventListener('pointerleave',event=>{if(state==='running'&&input==='pointer'&&event.pointerType!=='touch')pause('Курсор вышел за поле. Вернись в свою точку.');});
-  $('action').addEventListener('click',arm);
+  let actionPointerType='';
+  action.addEventListener('pointerdown',event=>{
+    actionPointerType=event.pointerType;
+    if(settings.touchbar||event.pointerType!=='touch'||event.button!==0||event.isPrimary===false)return;
+    if(state!=='intro'&&state!=='over')return;
+    event.preventDefault();
+    startAttempt('touch');captureTouch(event);
+  });
+  action.addEventListener('click',event=>{
+    if(state==='paused'){arm();return;}
+    const pointer=event.detail>0&&(event.pointerType||actionPointerType)!=='touch'&&!event.sourceCapabilities?.firesTouchEvents;
+    startAttempt(pointer?'pointer':settings.touchbar?'pad':'keyboard',event);
+  });
   $('pause').addEventListener('click',()=>state==='paused'?arm():pause());
   window.addEventListener('keydown',event=>{
     if(settingsDialog.open||event.metaKey||event.ctrlKey||event.altKey)return;
     if(state==='impact'&&(event.key==='Escape'||event.key==='Enter')){event.preventDefault();finishImpact();return;}
     if(event.key==='Escape') {event.preventDefault();if(state==='paused')arm();else pause();return;}
     const key=controls.directionKey(event);
-    if(key&&(state==='running'||state==='armed')) {
-      event.preventDefault();input='keyboard';mousePickup=false;notice.textContent='';syncPlayerMode();
+    if(key&&(state==='intro'||state==='running'||state==='armed')) {
+      event.preventDefault();
+      if(state==='intro')startAttempt('keyboard');
+      input='keyboard';directTouch=null;mousePickup=false;notice.textContent='';syncPlayerMode();
       keys.set(controls.keyIdentity(event),key);
       if(state==='armed')launch();
     }
-    if(event.key==='Enter'&&event.target===canvas&&(state==='intro'||state==='over'||state==='paused')) {event.preventDefault();arm();}
+    if(event.key==='Enter'&&event.target===canvas){
+      if(state==='paused'){event.preventDefault();arm();}
+      else if(state==='intro'||state==='over'){event.preventDefault();startAttempt('keyboard');}
+    }
   });
   window.addEventListener('keyup',event=>keys.delete(controls.keyIdentity(event)));
   window.addEventListener('blur',()=>pause('Вкладка потеряла фокус. Игра ждёт тебя.'));
@@ -676,8 +734,10 @@
   // Relative two-dimensional touchpad: lifting/repositioning never changes player position.
   touchpad.addEventListener('pointerdown',event=>{
     if(!settings.touchbar||event.button!==0||padPointer!==null||settingsDialog.open)return;
-    if(state!=='armed'&&state!=='running')return;
-    event.preventDefault();padPointer=event.pointerId;padLast={x:event.clientX,y:event.clientY};
+    if(state!=='intro'&&state!=='armed'&&state!=='running')return;
+    event.preventDefault();
+    if(state==='intro')startAttempt('pad');
+    padPointer=event.pointerId;padLast={x:event.clientX,y:event.clientY};
     input='pad';mousePickup=false;keys.clear();touchpad.setPointerCapture(event.pointerId);touchpad.classList.add('pressed');syncPlayerMode();
     if(state==='armed')launch();
   });
@@ -717,6 +777,7 @@
     $('setting-pad-sensitivity').value=settings.padSensitivity;
     $('setting-progression').checked=settings.progression;settingsForm.elements.player.value=settings.player;
     settingsForm.querySelectorAll('[name="shape"]').forEach(box=>box.checked=settings.types.includes(Number(box.value)));
+    $('custom-game').open=false;
     $('settings-status').textContent='';updateForm();settingsDialog.showModal();
   }
   $('settings-open').addEventListener('click',openSettings);
@@ -727,7 +788,7 @@
   settingsForm.addEventListener('submit',event=>{
     event.preventDefault();
     const types=[...settingsForm.querySelectorAll('[name="shape"]:checked')].map(box=>Number(box.value));
-    if(!types.length){$('settings-status').textContent='Выбери хотя бы одну фигуру.';return;}
+    if(!types.length){$('custom-game').open=true;$('settings-status').textContent='Выбери хотя бы одну фигуру.';return;}
     settings=sanitize({
       count:$('setting-count').value,speed:$('setting-speed').value,size:$('setting-size').value,types,
       player:settingsForm.elements.player.value,cursorScale:$('setting-cursor-scale').value,
@@ -736,7 +797,7 @@
       progression:$('setting-progression').checked
     });
     try {localStorage.setItem(SETTINGS_KEY,JSON.stringify(settings));}catch {}
-    touchbar.hidden=!settings.touchbar;settingsDialog.close();state='intro';layout();arm();
+    touchbar.hidden=!settings.touchbar;settingsDialog.close();state='intro';layout();showIntro();action.focus({preventScroll:true});
   });
   const observer=new ResizeObserver(layout);observer.observe(arena);
   window.addEventListener('scroll',()=>{arenaRect=canvas.getBoundingClientRect();},{passive:true});
@@ -745,5 +806,5 @@
     if(reducedMotion&&state==='impact')finishImpact();
     requestPaint();
   });
-  layout();scene();requestPaint();
+  layout();showIntro();
 })();
