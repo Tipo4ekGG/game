@@ -21,7 +21,8 @@ function launch(settings = {}, dimensions = {width: 1000, height: 600}, seed = 1
     if (elements.has(id)) return elements.get(id);
     const listeners = new Map();
     const element = {
-      id, hidden: id==='result'||id==='impact-preview', textContent: '', style: {}, dataset: {},
+      id, hidden: id==='result'||id==='impact-preview', textContent: '', dataset: {},
+      style: {setProperty(name, value) { this[name] = value; }},
       width: 544, height: 186,
       classList: {add() {}, remove() {}, toggle() {}},
       toggleAttribute(name, value) { this[name] = value; },
@@ -157,8 +158,13 @@ for(const [setting,reducedMotion] of [[{},false],[{lossAnimation:false},false],[
   const [body] = game.obstacles();
   Body.setPosition(body, {x: 500, y: 370});
   assert.equal(game.state(), 'running');
+  const arenaStyle = game.get('arena').style;
+  assert.equal(arenaStyle['--field-inset'], '0px 0px', 'the outline should fill an unscaled arena');
   game.resize(1000, 160);
   assert.equal(game.state(), 'paused');
+  const [insetY, insetX] = arenaStyle['--field-inset'].split(' ').map(Number.parseFloat);
+  assert.equal(insetY, 0);
+  assert(Math.abs(insetX - (1000 - 1000*160/600)/2) < .01, 'the outline should follow the fitted walls');
   game.activateAction();
   game.clickArena(500, 80);
   assert.equal(game.state(), 'running', 'resuming at the center after resizing must work');

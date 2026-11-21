@@ -92,8 +92,9 @@
   function fitField() {
     if(!viewWidth||!viewHeight)return;
     worldPerPixel=Math.max(W/viewWidth,H/viewHeight);
-    fieldX=(viewWidth-W/worldPerPixel)/2;
-    fieldY=(viewHeight-H/worldPerPixel)/2;
+    fieldX=Math.max(0,(viewWidth-W/worldPerPixel)/2);
+    fieldY=Math.max(0,(viewHeight-H/worldPerPixel)/2);
+    arena.style.setProperty('--field-inset',`${fieldY}px ${fieldX}px`);
     cacheCursor();
   }
   function layout() {
@@ -567,7 +568,6 @@
     ctx.setTransform(pixelX/worldPerPixel,0,0,pixelY/worldPerPixel,fieldX*pixelX,fieldY*pixelY);
     ctx.save();ctx.beginPath();ctx.rect(0,0,W,H);ctx.clip();
     ctx.fillStyle='#0c0c0c';ctx.fillRect(0,0,W,H);
-    if(fieldX>.5||fieldY>.5){ctx.strokeStyle='#565656';ctx.lineWidth=2*worldPerPixel;ctx.strokeRect(0,0,W,H);}
     const active=state==='running'||state==='armed'||state==='impact'||state==='over';
     for(const body of shapes){
       const highlight=state==='impact'&&!impact.blasted&&body===impact.body;
