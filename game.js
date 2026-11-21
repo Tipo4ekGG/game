@@ -42,6 +42,7 @@
   const impactPreview=$('impact-preview'), impactCanvas=$('impact-canvas'), impactLabel=$('impact-label');
   const SHAKE_SECONDS=.28, IMPACT_SECONDS=.88;
   const BLAST_DRAG_MS=520, RESULT_DRIFT_SPEED=2.1;
+  const SPAWN_INTERVAL=12, SPAWN_NOTICE=1.4;
   let impact=null;
   let viewWidth=0,viewHeight=0,viewDpr=0,fieldX=0,fieldY=0,worldPerPixel=1;
   let arenaRect=null,cachedCursor=[],mousePickup=false,padPointer=null,padLast=null,markerTransform='';
@@ -71,7 +72,7 @@
   }
   const {Engine,Bodies,Body,Composite}=Matter;
   const engine=physics.createEngine(Matter);
-  let W=1000,H=600,state='intro',shapes=[],walls=[],elapsed=0,best=0,nextSpawn=12;
+  let W=1000,H=600,state='intro',shapes=[],walls=[],elapsed=0,best=0,nextSpawn=SPAWN_INTERVAL;
   let last=null,accumulator=0,warning=null,lastHud=-1;
   let player={x:W/2,y:H/2},trail=[],keys=new Map(),input='pointer';
   let directTouch=null;
@@ -123,34 +124,39 @@
     }
     return slots;
   }
-  function available(x,y,r) {
+  function findPosition(r,allowCrowded=false) {
     const radius=r*1.1;
-    const clearance=Math.max(120,22*worldPerPixel*settings.cursorScale+24);
-    if(Math.hypot(x-player.x,y-player.y)<radius+clearance)return false;
-    return shapes.every(body=>Math.hypot(x-body.position.x,y-body.position.y)>radius+body.gameRadius+5);
-  }
-  function findPosition(r) {
-    const margin=r*1.1+8;
-    if(H<=2*margin)return null;
+    const margin=radius+8;
+    const playerClearance=Math.max(120,22*worldPerPixel*settings.cursorScale+24);
+    let fallback=null,bestClearance=-Infinity;
     for(let i=0;i<150;i++) {
       const x=random(margin,W-margin),y=random(margin,H-margin);
-      if(available(x,y,r))return {x,y};
+      let clearance=Math.hypot(x-player.x,y-player.y)-radius-playerClearance;
+      if(clearance<0&&!allowCrowded)continue;
+      for(const body of shapes){
+        const gap=Math.hypot(x-body.position.x,y-body.position.y)-radius-body.gameRadius-5;
+        clearance=Math.min(clearance,gap);
+      }
+      if(clearance>0)return {x,y};
+      if(allowCrowded&&clearance>bestClearance){fallback={x,y};bestClearance=clearance;}
     }
-    return null;
+    return fallback;
   }
-  function createShape(position,r,index) {
+  function prepareShape(position,r,index) {
     const type=settings.types[index%settings.types.length];
     const body=physics.createBody(Matter,type,position.x,position.y,r);
     Body.setAngle(body,random(0,Math.PI));
     const direction=random(0,Math.PI*2),speed=random(2.2,3.0)*settings.speed;
     Body.setVelocity(body,{x:Math.cos(direction)*speed,y:Math.sin(direction)*speed});
     Body.setAngularVelocity(body,type===0?0:random(-.012,.012)*settings.speed);
-    shapes.push(body); Composite.add(engine.world,body);
     return body;
+  }
+  function addShape(body) {
+    shapes.push(body);Composite.add(engine.world,body);
   }
   function scene(pointerEvent=null) {
     Composite.clear(engine.world,false);Engine.clear(engine);
-    shapes=[];walls=[];warning=null;trail=[];elapsed=0;nextSpawn=12;impact=null;
+    shapes=[];walls=[];warning=null;trail=[];elapsed=0;nextSpawn=SPAWN_INTERVAL;impact=null;
     impactPreview.hidden=true;arena.classList.remove('impact','result-shown');
     // Pick a field for this run and keep its coordinates through rotations and resizes.
     const preferredHeight=viewWidth&&viewHeight?W*viewHeight/viewWidth:600;
@@ -171,7 +177,7 @@
     for(let i=0;i<radii.length;i++){
       const position=findPosition(radii[i]);
       if(!position)break;
-      createShape(position,radii[i],i);
+      addShape(prepareShape(position,radii[i],i));
     }
     if(shapes.length!==settings.count){
       for(const body of shapes)Composite.remove(engine.world,body);
@@ -179,7 +185,7 @@
       radii.forEach((r,index)=>{
         const slot=Math.floor(random(0,slots.length));
         const [point]=slots.splice(slot,1);
-        createShape({x:point.x+random(-2,2),y:point.y+random(-2,2)},r,index);
+        addShape(prepareShape({x:point.x+random(-2,2),y:point.y+random(-2,2)},r,index));
       });
     }
     if(!pointerStart)keepPlayerSafe();
@@ -380,6 +386,11 @@
         end=boundPlayer({x:start.x+dx*speed,y:start.y+dy*speed});
       }
     }
+    if(playing&&warning&&elapsed+dt/1000>=warning.at&&!hits(start,end,warning.body)){
+      // Solve contacts in this step so other figures never cancel a scheduled arrival.
+      addShape(warning.body);
+      warning=null;nextSpawn=elapsed+dt/1000+SPAWN_INTERVAL;
+    }
     const playerExtent=settings.player==='dot'?RADIUS:22*worldPerPixel*settings.cursorScale;
     const before=playing?shapes.map(body=>{
       const reach=body.gameRadius+playerExtent+12;
@@ -420,14 +431,9 @@
       if(first){lose(first);return;}
       if(end!==start)placePlayer(end);
       if(settings.progression&&elapsed>=nextSpawn&&!warning&&shapes.length<Math.min(40,settings.count+14)) {
-        const r=random(20,30)*settings.size,position=findPosition(r);
-        if(position) warning={...position,r,at:elapsed+1.4};
-        else nextSpawn=elapsed+2;
-      }
-      if(warning&&elapsed>=warning.at) {
-        // Recheck the free zone at birth; approaching the warning cancels the spawn.
-        if(available(warning.x,warning.y,warning.r)) createShape(warning,warning.r,shapes.length);
-        warning=null;nextSpawn=elapsed+12;
+        const r=random(20,30)*settings.size;
+        const body=prepareShape(findPosition(r,true),r,shapes.length);
+        warning={body,at:elapsed+SPAWN_NOTICE};
       }
     }
     const levelTime=playing&&settings.progression?elapsed:0;
@@ -577,9 +583,9 @@
       ctx.save();ctx.clip();ctx.strokeStyle=highlight?'#fff':active?'#c2c2c0':'#7a7a78';ctx.lineWidth=highlight?4*worldPerPixel:2.5;ctx.stroke();ctx.restore();
     }
     if(warning&&state==='running') {
-      ctx.save();ctx.setLineDash([4,5]);ctx.strokeStyle='#898987';ctx.lineWidth=1;
-      circle(warning.x,warning.y,warning.r+13);ctx.stroke();ctx.restore();
-      ctx.fillStyle='#aaa';ctx.font='20px monospace';ctx.textAlign='center';ctx.fillText('+',warning.x,warning.y+6);
+      polygon(ctx,warning.body.vertices);
+      ctx.fillStyle='rgba(238,238,238,.10)';ctx.fill();
+      ctx.strokeStyle='rgba(238,238,238,.52)';ctx.lineWidth=1.5*worldPerPixel;ctx.stroke();
     }
     if(state==='impact')drawImpact();
     if(state==='running'||state==='armed') {

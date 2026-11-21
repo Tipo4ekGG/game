@@ -10,7 +10,7 @@ const source = readFileSync(require.resolve('../game.js'), 'utf8');
 // Run the real game loop against controlled input, time, storage and viewport size.
 function launch(settings = {}, dimensions = {width: 1000, height: 600}, seed = 1, storage = new Map(), reducedMotion = false) {
   const elements = new Map(), windowEvents = new Map();
-  let pendingFrame, resize, engine, draws = 0;
+  let pendingFrame, resize, engine, latestShape, fixedRandom, draws = 0;
   const context = new Proxy({
     fillRect() { draws++; },
     createRadialGradient() { return {addColorStop() {}}; }
@@ -37,12 +37,17 @@ function launch(settings = {}, dimensions = {width: 1000, height: 600}, seed = 1
   }
   const math = Object.create(Math);
   math.random = () => {
+    if (fixedRandom !== undefined) return fixedRandom;
     seed = (1664525 * seed + 1013904223) >>> 0;
     return seed / 2 ** 32;
   };
   const window = {
     Matter, GameGeometry: geometry, BounceInput: input,
-    BouncePhysics: {...physics, createEngine(matter) { engine = physics.createEngine(matter); return engine; }},
+    BouncePhysics: {
+      ...physics,
+      createEngine(matter) { engine = physics.createEngine(matter); return engine; },
+      createBody(...args) { latestShape = physics.createBody(...args); return latestShape; }
+    },
     addEventListener(name, callback) { windowEvents.set(name, callback); }
   };
   runInNewContext(source, {
@@ -67,6 +72,8 @@ function launch(settings = {}, dimensions = {width: 1000, height: 600}, seed = 1
     resize(width, height) { Object.assign(dimensions, {width, height}); resize(); },
     key(type, code, key = code) { windowEvents.get(type)({code, key, preventDefault() {}}); },
     state: () => get('arena').dataset.state,
+    fixRandom(value) { fixedRandom = value; },
+    latestShape: () => latestShape,
     obstacles: () => engine.world.bodies.filter(body => !body.isStatic)
   };
 }
@@ -245,6 +252,44 @@ for(const [value,x,y] of [[.5,514,307],[2,556,328]]){
   pad.dispatch('pointerdown',{button:0,pointerId:1,clientX:200,clientY:600,preventDefault() {}});
   pad.dispatch('pointermove',{pointerId:1,clientX:220,clientY:610});
   assert(game.get('player-marker').style.transform.startsWith(`translate3d(${x}px,${y}px,`), 'the same swipe should scale on both axes');
+}
+
+for (const playerBlocks of [false, true]) {
+  const game = launch({...oneCircle, types: [0, 2], speed: .25, progression: true});
+  game.startWithMouse();
+  const [old] = game.obstacles();
+  Body.setPosition(old, {x: 70, y: 55});
+  Body.setVelocity(old, {x: .65, y: 0});
+  game.frame(0);
+  let now = 0;
+  const advanceTo = time => { for (; now < time;) { now += 10; game.frame(now); } };
+  advanceTo(11990);
+  game.fixRandom(.2);
+  if (!playerBlocks) {
+    const margin = 22*1.1 + 8;
+    // Every sampled position overlaps the old circle.
+    Body.setPosition(old, {x: margin + (1000 - 2*margin)*.2, y: margin + (600 - 2*margin)*.2});
+  }
+  advanceTo(12030);
+  const preview = game.latestShape();
+  assert.equal(preview.gameType, 2, 'the warning must prepare the same shape type that will spawn');
+  assert(!game.obstacles().includes(preview), 'the silhouette must stay out of physics during the countdown');
+  advanceTo(13390);
+  if (playerBlocks) {
+    const move = ({x, y}) => game.get('canvas').dispatch('pointermove', {pointerType: 'mouse', clientX: x, clientY: y});
+    move(preview.position);
+    advanceTo(14100);
+    assert.equal(game.state(), 'running', 'the player can overlap a silhouette safely');
+    assert.equal(game.obstacles().length, 1, 'the player can block the new figure while occupying its position');
+    move({x: 500, y: 300});
+    advanceTo(14130);
+  } else {
+    Body.setPosition(old, preview.position);
+    advanceTo(13430);
+    const contact = Collision.collides(old, preview);
+    assert(!contact || contact.depth < .1, 'a busy spawn must still resolve the collision');
+  }
+  assert(game.obstacles().includes(preview), 'the warned figure must join the arena once the player is clear');
 }
 
 let maxDepth = 0;
