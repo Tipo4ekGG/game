@@ -789,16 +789,15 @@
   }
   touchpad.addEventListener('pointerup',releasePad);touchpad.addEventListener('pointercancel',releasePad);touchpad.addEventListener('lostpointercapture',releasePad);
   function updateForm() {
-    for(const [name,output] of [['count','count-output'],['speed','speed-output'],['size','size-output'],['cursor-scale','cursor-scale-output']]) {
-      const value=$('setting-'+name).value;
-      $(output).value=value+(name==='count'?'':'×');
+    for(const name of ['count','speed','size','cursor-scale','pad-sensitivity']) {
+      const range=$('setting-'+name);
+      const value=range.value.replace('.',',')+(name==='count'?'':'×');
+      $(name+'-output').value=value;
+      range.setAttribute('aria-valuetext',value);
     }
     $('cursor-settings').hidden=settingsForm.elements.player.value!=='cursor';
     $('touch-sensitivity').hidden=!$('setting-touchbar').checked;
-    const sensitivity=$('setting-pad-sensitivity');
-    const multiplier=sensitivity.value.replace('.',',');
-    $('pad-sensitivity-output').value=`${multiplier}×`;
-    sensitivity.setAttribute('aria-valuetext',`${multiplier}×`);
+    if(settingsForm.querySelector('[name="shape"]:checked'))$('settings-status').textContent='';
   }
   function openSettings() {
     if(state==='running'||state==='armed')pause('Настрой поле и начни новую попытку или закрой настройки, чтобы продолжить.');
@@ -809,8 +808,8 @@
     $('setting-pad-sensitivity').value=settings.padSensitivity;
     $('setting-progression').checked=settings.progression;settingsForm.elements.player.value=settings.player;
     settingsForm.querySelectorAll('[name="shape"]').forEach(box=>box.checked=settings.types.includes(Number(box.value)));
-    $('custom-game').open=false;
     $('settings-status').textContent='';updateForm();settingsDialog.showModal();
+    $('settings-content').scrollTop=0;
   }
   $('settings-open').addEventListener('click',openSettings);
   $('settings-close').addEventListener('click',()=>settingsDialog.close());
@@ -820,7 +819,11 @@
   settingsForm.addEventListener('submit',event=>{
     event.preventDefault();
     const types=[...settingsForm.querySelectorAll('[name="shape"]:checked')].map(box=>Number(box.value));
-    if(!types.length){$('custom-game').open=true;$('settings-status').textContent='Выбери хотя бы одну фигуру.';return;}
+    if(!types.length){
+      $('settings-status').textContent='Выбери хотя бы одну форму.';
+      settingsForm.querySelector('[name="shape"]').focus();
+      return;
+    }
     settings=sanitize({
       count:$('setting-count').value,speed:$('setting-speed').value,size:$('setting-size').value,types,
       player:settingsForm.elements.player.value,cursorScale:$('setting-cursor-scale').value,
