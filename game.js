@@ -47,7 +47,7 @@
   let viewWidth=0,viewHeight=0,viewDpr=0,fieldX=0,fieldY=0,worldPerPixel=1;
   let arenaRect=null,cachedCursor=[],mousePickup=false,padPointer=null,padLast=null,markerTransform='';
   let playerLimits;
-  let paintPending=false;
+  let paintPending=false,hostHidden=false;
   function recordKey() {
     const {count,speed,size,types,player,cursorScale,progression}=settings;
     return 'bounce.best.v4.'+JSON.stringify({count,speed,size,types,player,cursorScale:player==='cursor'?cursorScale:1,progression,arenaHeight:H});
@@ -641,7 +641,7 @@
     paintPending=true;requestAnimationFrame(frame);
   }
   function isAnimating() {
-    if(settingsDialog.open||document.hidden)return false;
+    if(settingsDialog.open||document.hidden||hostHidden)return false;
     return state==='running'||(state==='intro'&&!reducedMotion)||(state==='over'&&playsLossAnimation());
   }
   function frame(now) {
@@ -757,11 +757,22 @@
   });
   window.addEventListener('keyup',event=>keys.delete(controls.keyIdentity(event)));
   window.addEventListener('blur',()=>pause('Вкладка потеряла фокус. Игра ждёт тебя.'));
-  document.addEventListener('visibilitychange',()=>{
-    if(!document.hidden){if(isAnimating())requestPaint();return;}
+  function suspend(reason) {
     last=null;accumulator=0;
     if(state==='impact')finishImpact();
-    else pause('Вкладка была скрыта. Продолжим?');
+    else pause(reason);
+  }
+  document.addEventListener('visibilitychange',()=>{
+    if(document.hidden)suspend('Вкладка была скрыта. Продолжим?');
+    else if(isAnimating())requestPaint();
+  });
+  window.addEventListener('bounce:vk-hide',()=>{
+    hostHidden=true;
+    suspend('Игра была свёрнута. Продолжим?');
+  });
+  window.addEventListener('bounce:vk-restore',()=>{
+    hostHidden=false;
+    if(isAnimating())requestPaint();
   });
   // Relative two-dimensional touchpad: lifting/repositioning never changes player position.
   touchpad.addEventListener('pointerdown',event=>{

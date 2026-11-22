@@ -70,6 +70,7 @@ function launch(settings = {}, dimensions = {width: 1000, height: 600}, seed = 1
     clickArena: (x, y) => get('canvas').dispatch('pointerdown', {button: 0, pointerType: 'mouse', clientX: x, clientY: y}),
     frame(now) { const callback = pendingFrame; pendingFrame = null; callback?.(now); },
     resize(width, height) { Object.assign(dimensions, {width, height}); resize(); },
+    hostEvent(type) { windowEvents.get(type)(); },
     key(type, code, key = code) { windowEvents.get(type)({code, key, preventDefault() {}}); },
     state: () => get('arena').dataset.state,
     fixRandom(value) { fixedRandom = value; },
@@ -206,6 +207,21 @@ for (let seed = 63000; seed < 63020; seed++) {
   const pausedDraws = game.draws();
   for (let i = 1; i <= 120; i++) game.frame(40 + i * 1000 / 120);
   assert.equal(game.draws(), pausedDraws, 'pausing must stop recurring canvas draws');
+}
+
+{
+  const game = launch(oneCircle);
+  game.activateAction();
+  game.frame(10);
+  game.frame(30);
+  const before = game.get('time').textContent;
+  game.hostEvent('bounce:vk-hide');
+  assert.equal(game.state(), 'paused', 'hiding the VK view must pause the attempt');
+  game.frame(400);
+  game.hostEvent('bounce:vk-restore');
+  game.frame(500);
+  assert.equal(game.state(), 'paused', 'restoring the VK view must wait for the player to resume');
+  assert.equal(game.get('time').textContent, before);
 }
 
 {

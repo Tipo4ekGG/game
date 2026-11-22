@@ -59,6 +59,8 @@ dialog::backdrop{background:rgba(0,0,0,.78);backdrop-filter:blur(4px)}
 .cancel-button{background:none;border:1px solid #3b3b3b;color:var(--ink)}
 .cancel-button:hover,.close-button:hover{background:#222}
 .arena.active:has(canvas:focus-visible){outline:none}
+.vk-games,.vk-games body{overflow:hidden;overscroll-behavior:none}
+.vk-games .game{min-height:0}
 @media(max-width:620px){
   .settings-heading,.settings-actions{padding:10px 16px}
   .settings-content{grid-template-columns:minmax(0,1fr);gap:18px;padding:18px 16px}
