@@ -236,12 +236,13 @@ for (let seed = 63000; seed < 63020; seed++) {
   Body.setPosition(game.obstacles()[0], {x: 250, y: 100});
   pad.dispatch('pointermove', {pointerId: 1, clientX: 220, clientY: 610});
   assert(marker.style.transform.startsWith('translate3d(528px,314px,'), 'saved settings without sensitivity must use the original movement');
-  pad.dispatch('pointermove', {pointerId: 1, clientX: 220, clientY: 900});
-  assert.match(marker.style.transform, /583\.5px/, 'the full cursor must fit above the lower edge');
   pad.dispatch('pointerup', {pointerId: 1});
   const before = marker.style.transform;
   pad.dispatch('pointerdown', {button: 0, pointerId: 2, clientX: 100, clientY: 650, preventDefault() {}});
   assert.equal(marker.style.transform, before, 'new contact on the touchpad must not move the player');
+  pad.dispatch('pointermove', {pointerId: 2, clientX: 100, clientY: 950});
+  assert.equal(game.state(), 'over', 'dragging to the lower edge must end the attempt');
+  assert.equal(game.get('description').textContent, 'Хвост стрелки задел нижнюю границу арены.');
 }
 
 for(const [value,x,y] of [[.5,514,307],[2,556,328]]){
@@ -254,9 +255,8 @@ for(const [value,x,y] of [[.5,514,307],[2,556,328]]){
   assert(game.get('player-marker').style.transform.startsWith(`translate3d(${x}px,${y}px,`), 'the same swipe should scale on both axes');
 }
 
-for (const control of ['none', 'mouse', 'keyboard', 'cursor']) {
-  const player = control === 'cursor' ? 'cursor' : 'dot';
-  const game = launch({...oneCircle, player, types: [0, 2], speed: .25, progression: true});
+for (const playerBlocks of [false, true]) {
+  const game = launch({...oneCircle, types: [0, 2], speed: .25, progression: true});
   game.startWithMouse();
   const [old] = game.obstacles();
   Body.setPosition(old, {x: 70, y: 55});
@@ -266,7 +266,7 @@ for (const control of ['none', 'mouse', 'keyboard', 'cursor']) {
   const advanceTo = time => { for (; now < time;) { now += 10; game.frame(now); } };
   advanceTo(11990);
   game.fixRandom(.2);
-  if (control === 'none') {
+  if (!playerBlocks) {
     const margin = 22*1.1 + 8;
     // Every sampled position overlaps the old circle.
     Body.setPosition(old, {x: margin + (1000 - 2*margin)*.2, y: margin + (600 - 2*margin)*.2});
@@ -275,8 +275,8 @@ for (const control of ['none', 'mouse', 'keyboard', 'cursor']) {
   const preview = game.latestShape();
   assert.equal(preview.gameType, 2, 'the warning must prepare the same shape type that will spawn');
   assert(!game.obstacles().includes(preview), 'the silhouette must stay out of physics during the countdown');
-  if (control === 'none') {
-    advanceTo(13390);
+  advanceTo(13390);
+  if (!playerBlocks) {
     Body.setPosition(old, preview.position);
     advanceTo(13430);
     const contact = Collision.collides(old, preview);
@@ -287,21 +287,53 @@ for (const control of ['none', 'mouse', 'keyboard', 'cursor']) {
       pointerType: 'mouse', clientX: x, clientY: y
     });
     const {x, y} = preview.position;
-    move(x + 45, y);
-    assert.equal(game.state(), 'running', 'getting close to the silhouette must be safe');
-    if (control === 'keyboard') {
-      game.key('keydown', 'KeyA', 'a');
-      advanceTo(12220);
-      game.key('keyup', 'KeyA', 'a');
-    } else {
-      move(x - 45, y);
-    }
-    assert.equal(game.state(), 'over', `touching the silhouette with ${control} must end the attempt`);
-    const expected = player === 'cursor' ? /стрелки задел силуэт треугольника/ : /Точка задела силуэт треугольника/;
-    assert.match(game.get('description').textContent, expected);
-    assert.equal(game.get('impact-preview').hidden, false, 'the result must show the point of contact');
-    assert(!game.obstacles().includes(preview), 'touching the warning must count before the figure spawns');
+    move(x, y);
+    advanceTo(14100);
+    assert.equal(game.state(), 'running', 'the player can touch a silhouette safely');
+    assert(!game.obstacles().includes(preview), 'the player can block the spawn while occupying its position');
+    move(500, 300);
+    advanceTo(14130);
+    assert(game.obstacles().includes(preview), 'leaving the silhouette must allow the figure to spawn');
   }
+}
+
+for (const [side, safe, edge] of [
+  ['верхнюю', {x: 500, y: 6}, {x: 500, y: 5}],
+  ['нижнюю', {x: 500, y: 594}, {x: 500, y: 595}],
+  ['левую', {x: 6, y: 300}, {x: 5, y: 300}],
+  ['правую', {x: 994, y: 300}, {x: 995, y: 300}]
+]) {
+  const game = launch(oneCircle);
+  game.startWithMouse();
+  Body.setPosition(game.obstacles()[0], {x: 250, y: 100});
+  const move = ({x, y}) => game.get('canvas').dispatch('pointermove', {pointerType: 'mouse', clientX: x, clientY: y});
+  move(safe);
+  assert.equal(game.state(), 'running', 'movement just inside a wall must be safe');
+  move(edge);
+  assert.equal(game.state(), 'over', 'touching any wall must end the attempt');
+  assert.equal(game.get('description').textContent, `Точка задела ${side} границу арены.`);
+  assert.equal(game.get('impact-preview').hidden, false);
+}
+
+{
+  const game = launch(oneCircle);
+  game.startWithMouse();
+  Body.setPosition(game.obstacles()[0], {x: 250, y: 100});
+  const canvas = game.get('canvas');
+  canvas.dispatch('pointermove', {pointerType: 'mouse', clientX: 500, clientY: 590});
+  game.key('keydown', 'ArrowDown');
+  game.frame(0);
+  game.frame(30);
+  assert.equal(game.state(), 'over', 'keyboard movement must also lose on contact with a wall');
+}
+
+{
+  const game = launch(oneCircle);
+  game.startWithMouse();
+  Body.setPosition(game.obstacles()[0], {x: 250, y: 100});
+  game.get('canvas').dispatch('pointerleave', {pointerType: 'mouse', clientX: -10, clientY: 300});
+  assert.equal(game.state(), 'over', 'leaving the canvas in one fast movement must still hit its wall');
+  assert.equal(game.get('description').textContent, 'Точка задела левую границу арены.');
 }
 
 let maxDepth = 0;

@@ -46,6 +46,7 @@
   let impact=null;
   let viewWidth=0,viewHeight=0,viewDpr=0,fieldX=0,fieldY=0,worldPerPixel=1;
   let arenaRect=null,cachedCursor=[],mousePickup=false,padPointer=null,padLast=null,markerTransform='';
+  let playerLimits;
   let paintPending=false;
   function recordKey() {
     const {count,speed,size,types,player,cursorScale,progression}=settings;
@@ -55,7 +56,13 @@
     best=0;try {best=Number(localStorage.getItem(recordKey()))||0;if(!Number.isFinite(best)||best<0)best=0;} catch {}
     $('best').textContent=time(best);
   }
-  function cacheCursor() {cachedCursor=geo.MAC_CURSOR.map(p=>({x:p.x*worldPerPixel*settings.cursorScale,y:p.y*worldPerPixel*settings.cursorScale}));}
+  function cacheCursor() {
+    const scale=worldPerPixel*settings.cursorScale;
+    cachedCursor=geo.MAC_CURSOR.map(p=>({x:p.x*scale,y:p.y*scale}));
+    const dot=settings.player==='dot';
+    const inset=dot?RADIUS:.6*worldPerPixel;
+    playerLimits={left:inset,top:inset,right:W-inset-(dot?0:14*scale),bottom:H-inset-(dot?0:21*scale)};
+  }
   function cursorPolygon() {return cachedCursor;}
   function updateMarker() {
     const visible=state==='running'&&input!=='pointer';
@@ -169,8 +176,8 @@
     while(true){
       fitField();
       const target=pointerEvent?position(pointerEvent):null;
-      pointerStart=target!==null&&insideField(target);
-      player=pointerStart?boundPlayer(target,'pointer'):{x:W/2,y:H/2};
+      pointerStart=target!==null&&clearOfWalls(target);
+      player=pointerStart?target:{x:W/2,y:H/2};
       const clearance=clamp(22*worldPerPixel*settings.cursorScale+24,160,300);
       slots=gridSlots(player,clearance);
       if(slots.length>=settings.count)break;
@@ -240,10 +247,10 @@
   }
   function describeImpact(contact) {
     const shapes=['круг','квадрат','треугольник','шестиугольник'];
-    const silhouettes=['силуэт круга','силуэт квадрата','силуэт треугольника','силуэт шестиугольника'];
+    const edges=['верхнюю','нижнюю','левую','правую'];
     const parts={dot:'Точка задела',tip:'Кончик стрелки задел',tail:'Хвост стрелки задел',edge:'Край стрелки задел'};
-    const names=contact.silhouette?silhouettes:shapes;
-    return `${parts[contact.part]} ${names[contact.body.gameType]}.`;
+    const target=contact.wall===undefined?shapes[contact.body.gameType]:`${edges[contact.wall]} границу арены`;
+    return `${parts[contact.part]} ${target}.`;
   }
   function playsLossAnimation(){return settings.lossAnimation&&!reducedMotion;}
   function lose(contact) {
@@ -280,11 +287,23 @@
     const shift=point=>({x:point.x+displacement.x*data.fraction,y:point.y+displacement.y*data.fraction});
     return {...data,body,cursor,origin:shift(data.origin),point:shift(data.point),vertices:vertices.map(shift)};
   }
-  function silhouetteImpact(start,end) {
-    if(!warning||!hits(start,end,warning.body))return null;
-    const contact=traceImpact(start,end,warning.body);
-    if(contact)contact.silhouette=true;
-    return contact;
+  function wallImpact(start,end) {
+    if(clearOfWalls(start)&&clearOfWalls(end))return null;
+    let first=null;
+    for(const [side,wall] of walls.entries()){
+      const contact=traceImpact(start,end,wall);
+      if(contact&&(!first||contact.fraction<first.fraction))first={...contact,wall:side};
+    }
+    if(!first)return null;
+    // Show just the part of the wall around the contact point in the result diagram.
+    const {x,y}=first.point;
+    const span=28*worldPerPixel,depth=12*worldPerPixel;
+    const horizontal=first.wall<2;
+    const left=horizontal?x-span:first.wall===2?-depth:W;
+    const top=horizontal?(first.wall===0?-depth:H):y-span;
+    const right=left+(horizontal?2*span:depth),bottom=top+(horizontal?depth:2*span);
+    first.vertices=[{x:left,y:top},{x:right,y:top},{x:right,y:bottom},{x:left,y:bottom}];
+    return first;
   }
   function emitBlast() {
     const center=impact.point;
@@ -345,22 +364,22 @@
     if(dot)return geo.sweptCirclePolygon(a,b,RADIUS,vertices);
     return geo.sweptPolygonPolygon(a,b,cursorPolygon(),vertices,outline);
   }
-  function boundPlayer(point,device=input) {
-    const isDot=settings.player==='dot';
-    const arrow=device!=='pointer'&&!isDot;
-    const inset=isDot ? RADIUS : (arrow ? .6*worldPerPixel*settings.cursorScale : 0);
-    const width=arrow?15*worldPerPixel*settings.cursorScale:inset;
-    const height=arrow?22*worldPerPixel*settings.cursorScale:inset;
-    return {x:clamp(point.x,inset,Math.max(inset,W-width)),y:clamp(point.y,inset,Math.max(inset,H-height))};
+  function clearOfWalls({x,y}) {
+    const {left,right,top,bottom}=playerLimits;
+    return x>left&&x<right&&y>top&&y<bottom;
+  }
+  function safePlayerPosition({x,y}) {
+    const {left,right,top,bottom}=playerLimits;
+    return {x:clamp(x,left+worldPerPixel,right-worldPerPixel),y:clamp(y,top+worldPerPixel,bottom-worldPerPixel)};
   }
   function keepPlayerSafe() {
     const was=player;
-    const free=point=>(!warning||!hits(point,point,warning.body))&&!shapes.some(body=>hits(point,point,body));
-    const near=boundPlayer(was,'keyboard');
+    const free=point=>!shapes.some(body=>hits(point,point,body));
+    const near=safePlayerPosition(was);
     if(free(near)){player=near;return;}
     for(let distance=8;distance<=Math.hypot(W,H);distance+=8){
       for(let angle=0;angle<Math.PI*2;angle+=Math.PI/8){
-        const candidate=boundPlayer({x:near.x+Math.cos(angle)*distance,y:near.y+Math.sin(angle)*distance},'keyboard');
+        const candidate=safePlayerPosition({x:near.x+Math.cos(angle)*distance,y:near.y+Math.sin(angle)*distance});
         if(free(candidate)){player=candidate;return;}
       }
     }
@@ -371,9 +390,8 @@
     }
     player=next;updateMarker();
   }
-  function movePlayer(p) {
-    const next=boundPlayer(p);
-    let first=silhouetteImpact(player,next);
+  function movePlayer(next) {
+    let first=wallImpact(player,next);
     for(const body of shapes){
       if(!hits(player,next,body))continue;
       const contact=traceImpact(player,next,body);
@@ -395,11 +413,10 @@
       const dy=Number(pressed.has('down'))-Number(pressed.has('up'));
       if(dx||dy){
         const speed=330*dt/1000/Math.hypot(dx,dy);
-        end=boundPlayer({x:start.x+dx*speed,y:start.y+dy*speed});
+        end={x:start.x+dx*speed,y:start.y+dy*speed};
       }
     }
-    const warningContact=playing?silhouetteImpact(start,end):null;
-    if(playing&&warning&&elapsed+dt/1000>=warning.at&&!warningContact){
+    if(playing&&warning&&elapsed+dt/1000>=warning.at&&!hits(start,end,warning.body)){
       // Solve contacts in this step so other figures never cancel a scheduled arrival.
       addShape(warning.body);
       warning=null;nextSpawn=elapsed+dt/1000+SPAWN_INTERVAL;
@@ -413,7 +430,7 @@
     physics.advance(Matter,engine,dt);
     if(playing) {
       elapsed+=dt/1000;
-      let first=warningContact;
+      let first=wallImpact(start,end);
       for(let i=0;i<shapes.length;i++){
         const body=shapes[i],previous=before[i];
         let contact=null;
@@ -595,14 +612,10 @@
       // Keep the full visible stroke inside the physical boundary.
       ctx.save();ctx.clip();ctx.strokeStyle=highlight?'#fff':active?'#c2c2c0':'#7a7a78';ctx.lineWidth=highlight?4*worldPerPixel:2.5;ctx.stroke();ctx.restore();
     }
-    const hitSilhouette=impact?.silhouette&&!impact.blasted;
-    const silhouette=hitSilhouette?impact.vertices:warning?.body.vertices;
-    if(silhouette) {
-      polygon(ctx,silhouette);
-      ctx.fillStyle=hitSilhouette?'#535353':'rgba(238,238,238,.10)';ctx.fill();
-      ctx.save();ctx.clip();
-      ctx.strokeStyle=hitSilhouette?'#fff':'rgba(238,238,238,.52)';
-      ctx.lineWidth=(hitSilhouette?4:3)*worldPerPixel;ctx.stroke();ctx.restore();
+    if(warning&&state==='running') {
+      polygon(ctx,warning.body.vertices);
+      ctx.fillStyle='rgba(238,238,238,.10)';ctx.fill();
+      ctx.strokeStyle='rgba(238,238,238,.52)';ctx.lineWidth=1.5*worldPerPixel;ctx.stroke();
     }
     if(state==='impact')drawImpact();
     if(state==='running'||state==='armed') {
@@ -663,10 +676,10 @@
     if(!insideField(point))return;
     const touch=event.pointerType==='touch';
     if(state==='armed'&&Math.hypot(point.x-player.x,point.y-player.y)<=startRadius()
-      &&(!warning||!hits(player,point,warning.body))
+      &&(touch||clearOfWalls(point))
       &&!shapes.some(body=>hits(player,point,body))){
       if(touch)captureTouch(event);
-      else {input='pointer';placePlayer(boundPlayer(point));}
+      else {input='pointer';placePlayer(point);}
       launch();
     } else if(state==='running'&&touch&&!directTouch){
       captureTouch(event);
@@ -688,15 +701,8 @@
         if(state!=='running')break;
         continue;
       }
-      if(!insideField(p)) {
-        if(input==='pointer') {
-          movePlayer(p);
-          pause('Курсор вышел за поле. Вернись в свою точку.');
-          break;
-        }
-        continue;
-      }
       if(input!=='pointer') {
+        if(!insideField(p))continue;
         if(!controls.canPickUp(player,p,worldPerPixel)) {
           if(!mousePickup){mousePickup=true;syncPlayerMode();notice.textContent='Для мыши подведи указатель к игроку.';}
           continue;
@@ -715,7 +721,9 @@
   }
   canvas.addEventListener('pointerup',endTouch);canvas.addEventListener('pointercancel',endTouch);
   canvas.addEventListener('lostpointercapture',endTouch);
-  canvas.addEventListener('pointerleave',event=>{if(state==='running'&&input==='pointer'&&event.pointerType!=='touch')pause('Курсор вышел за поле. Вернись в свою точку.');});
+  canvas.addEventListener('pointerleave',event=>{
+    if(state==='running'&&input==='pointer'&&event.pointerType!=='touch')movePlayer(position(event));
+  });
   let actionPointerType='';
   action.addEventListener('pointerdown',event=>{
     actionPointerType=event.pointerType;

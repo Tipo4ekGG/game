@@ -15,7 +15,7 @@
 <script defer src="./geometry.js?v=5"></script>
 <script defer src="./physics.js?v=4"></script>
 <script defer src="./input.js?v=9"></script>
-<script defer src="./game.js?v=13"></script>
+<script defer src="./game.js?v=14"></script>
 </head>
 <body>
 <main class="game">
@@ -26,7 +26,7 @@
 <button id="pause" class="icon-button" aria-label="Пауза" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 5v10M13 5v10"/></svg></button>
 </header>
 <section id="arena" class="arena" data-state="intro" aria-label="Игровое поле">
-<canvas id="canvas" tabindex="0" aria-label="Уворачивайтесь от фигур курсором, пальцем или WASD и стрелками клавиатуры. Escape — пауза."></canvas>
+<canvas id="canvas" tabindex="0" aria-label="Уворачивайтесь от фигур и не касайтесь края арены. Управление мышью, пальцем, WASD или стрелками. Escape — пауза."></canvas>
 <svg id="player-marker" class="player-marker" viewBox="0 0 14 22" aria-hidden="true" hidden><path class="marker-arrow" d="M0 0V18L4.5 13.5 8 21 11 19.5 7.5 12H14Z"/><circle class="marker-dot" cx="0" cy="0" r="5"/></svg>
 <div id="overlay" class="overlay">
 <div class="panel">
