@@ -128,11 +128,15 @@
     const radius=r*1.1;
     const margin=radius+8;
     const playerClearance=Math.max(120,22*worldPerPixel*settings.cursorScale+24);
-    let fallback=null,bestClearance=-Infinity;
+    let fallback=allowCrowded?{
+      x:player.x<W/2?W-margin:margin,
+      y:player.y<H/2?H-margin:margin
+    }:null;
+    let bestClearance=-Infinity;
     for(let i=0;i<150;i++) {
       const x=random(margin,W-margin),y=random(margin,H-margin);
       let clearance=Math.hypot(x-player.x,y-player.y)-radius-playerClearance;
-      if(clearance<0&&!allowCrowded)continue;
+      if(clearance<0)continue;
       for(const body of shapes){
         const gap=Math.hypot(x-body.position.x,y-body.position.y)-radius-body.gameRadius-5;
         clearance=Math.min(clearance,gap);
@@ -236,8 +240,10 @@
   }
   function describeImpact(contact) {
     const shapes=['круг','квадрат','треугольник','шестиугольник'];
+    const silhouettes=['силуэт круга','силуэт квадрата','силуэт треугольника','силуэт шестиугольника'];
     const parts={dot:'Точка задела',tip:'Кончик стрелки задел',tail:'Хвост стрелки задел',edge:'Край стрелки задел'};
-    return `${parts[contact.part]} ${shapes[contact.body.gameType]}.`;
+    const names=contact.silhouette?silhouettes:shapes;
+    return `${parts[contact.part]} ${names[contact.body.gameType]}.`;
   }
   function playsLossAnimation(){return settings.lossAnimation&&!reducedMotion;}
   function lose(contact) {
@@ -265,7 +271,7 @@
     impactPreview.hidden=false;drawImpactPreview();
     action.textContent='Играть снова';$('hint').hidden=true;
     if(!document.hidden&&canvas===document.activeElement)$('action').focus({preventScroll:true});
-    requestPaint();
+    hud(true);requestPaint();
   }
   function traceImpact(start,end,body,vertices=body.vertices,displacement={x:0,y:0}) {
     const cursor=settings.player==='cursor'?cursorPolygon():null;
@@ -273,6 +279,12 @@
     if(!data)return null;
     const shift=point=>({x:point.x+displacement.x*data.fraction,y:point.y+displacement.y*data.fraction});
     return {...data,body,cursor,origin:shift(data.origin),point:shift(data.point),vertices:vertices.map(shift)};
+  }
+  function silhouetteImpact(start,end) {
+    if(!warning||!hits(start,end,warning.body))return null;
+    const contact=traceImpact(start,end,warning.body);
+    if(contact)contact.silhouette=true;
+    return contact;
   }
   function emitBlast() {
     const center=impact.point;
@@ -343,7 +355,7 @@
   }
   function keepPlayerSafe() {
     const was=player;
-    const free=point=>!shapes.some(body=>hits(point,point,body));
+    const free=point=>(!warning||!hits(point,point,warning.body))&&!shapes.some(body=>hits(point,point,body));
     const near=boundPlayer(was,'keyboard');
     if(free(near)){player=near;return;}
     for(let distance=8;distance<=Math.hypot(W,H);distance+=8){
@@ -361,7 +373,7 @@
   }
   function movePlayer(p) {
     const next=boundPlayer(p);
-    let first=null;
+    let first=silhouetteImpact(player,next);
     for(const body of shapes){
       if(!hits(player,next,body))continue;
       const contact=traceImpact(player,next,body);
@@ -386,7 +398,8 @@
         end=boundPlayer({x:start.x+dx*speed,y:start.y+dy*speed});
       }
     }
-    if(playing&&warning&&elapsed+dt/1000>=warning.at&&!hits(start,end,warning.body)){
+    const warningContact=playing?silhouetteImpact(start,end):null;
+    if(playing&&warning&&elapsed+dt/1000>=warning.at&&!warningContact){
       // Solve contacts in this step so other figures never cancel a scheduled arrival.
       addShape(warning.body);
       warning=null;nextSpawn=elapsed+dt/1000+SPAWN_INTERVAL;
@@ -400,7 +413,7 @@
     physics.advance(Matter,engine,dt);
     if(playing) {
       elapsed+=dt/1000;
-      let first=null;
+      let first=warningContact;
       for(let i=0;i<shapes.length;i++){
         const body=shapes[i],previous=before[i];
         let contact=null;
@@ -582,10 +595,14 @@
       // Keep the full visible stroke inside the physical boundary.
       ctx.save();ctx.clip();ctx.strokeStyle=highlight?'#fff':active?'#c2c2c0':'#7a7a78';ctx.lineWidth=highlight?4*worldPerPixel:2.5;ctx.stroke();ctx.restore();
     }
-    if(warning&&state==='running') {
-      polygon(ctx,warning.body.vertices);
-      ctx.fillStyle='rgba(238,238,238,.10)';ctx.fill();
-      ctx.strokeStyle='rgba(238,238,238,.52)';ctx.lineWidth=1.5*worldPerPixel;ctx.stroke();
+    const hitSilhouette=impact?.silhouette&&!impact.blasted;
+    const silhouette=hitSilhouette?impact.vertices:warning?.body.vertices;
+    if(silhouette) {
+      polygon(ctx,silhouette);
+      ctx.fillStyle=hitSilhouette?'#535353':'rgba(238,238,238,.10)';ctx.fill();
+      ctx.save();ctx.clip();
+      ctx.strokeStyle=hitSilhouette?'#fff':'rgba(238,238,238,.52)';
+      ctx.lineWidth=(hitSilhouette?4:3)*worldPerPixel;ctx.stroke();ctx.restore();
     }
     if(state==='impact')drawImpact();
     if(state==='running'||state==='armed') {
@@ -646,6 +663,7 @@
     if(!insideField(point))return;
     const touch=event.pointerType==='touch';
     if(state==='armed'&&Math.hypot(point.x-player.x,point.y-player.y)<=startRadius()
+      &&(!warning||!hits(player,point,warning.body))
       &&!shapes.some(body=>hits(player,point,body))){
       if(touch)captureTouch(event);
       else {input='pointer';placePlayer(boundPlayer(point));}

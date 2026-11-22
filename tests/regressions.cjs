@@ -254,8 +254,9 @@ for(const [value,x,y] of [[.5,514,307],[2,556,328]]){
   assert(game.get('player-marker').style.transform.startsWith(`translate3d(${x}px,${y}px,`), 'the same swipe should scale on both axes');
 }
 
-for (const playerBlocks of [false, true]) {
-  const game = launch({...oneCircle, types: [0, 2], speed: .25, progression: true});
+for (const control of ['none', 'mouse', 'keyboard', 'cursor']) {
+  const player = control === 'cursor' ? 'cursor' : 'dot';
+  const game = launch({...oneCircle, player, types: [0, 2], speed: .25, progression: true});
   game.startWithMouse();
   const [old] = game.obstacles();
   Body.setPosition(old, {x: 70, y: 55});
@@ -265,7 +266,7 @@ for (const playerBlocks of [false, true]) {
   const advanceTo = time => { for (; now < time;) { now += 10; game.frame(now); } };
   advanceTo(11990);
   game.fixRandom(.2);
-  if (!playerBlocks) {
+  if (control === 'none') {
     const margin = 22*1.1 + 8;
     // Every sampled position overlaps the old circle.
     Body.setPosition(old, {x: margin + (1000 - 2*margin)*.2, y: margin + (600 - 2*margin)*.2});
@@ -274,22 +275,33 @@ for (const playerBlocks of [false, true]) {
   const preview = game.latestShape();
   assert.equal(preview.gameType, 2, 'the warning must prepare the same shape type that will spawn');
   assert(!game.obstacles().includes(preview), 'the silhouette must stay out of physics during the countdown');
-  advanceTo(13390);
-  if (playerBlocks) {
-    const move = ({x, y}) => game.get('canvas').dispatch('pointermove', {pointerType: 'mouse', clientX: x, clientY: y});
-    move(preview.position);
-    advanceTo(14100);
-    assert.equal(game.state(), 'running', 'the player can overlap a silhouette safely');
-    assert.equal(game.obstacles().length, 1, 'the player can block the new figure while occupying its position');
-    move({x: 500, y: 300});
-    advanceTo(14130);
-  } else {
+  if (control === 'none') {
+    advanceTo(13390);
     Body.setPosition(old, preview.position);
     advanceTo(13430);
     const contact = Collision.collides(old, preview);
     assert(!contact || contact.depth < .1, 'a busy spawn must still resolve the collision');
+    assert(game.obstacles().includes(preview), 'another figure must never block the scheduled spawn');
+  } else {
+    const move = (x, y) => game.get('canvas').dispatch('pointermove', {
+      pointerType: 'mouse', clientX: x, clientY: y
+    });
+    const {x, y} = preview.position;
+    move(x + 45, y);
+    assert.equal(game.state(), 'running', 'getting close to the silhouette must be safe');
+    if (control === 'keyboard') {
+      game.key('keydown', 'KeyA', 'a');
+      advanceTo(12220);
+      game.key('keyup', 'KeyA', 'a');
+    } else {
+      move(x - 45, y);
+    }
+    assert.equal(game.state(), 'over', `touching the silhouette with ${control} must end the attempt`);
+    const expected = player === 'cursor' ? /стрелки задел силуэт треугольника/ : /Точка задела силуэт треугольника/;
+    assert.match(game.get('description').textContent, expected);
+    assert.equal(game.get('impact-preview').hidden, false, 'the result must show the point of contact');
+    assert(!game.obstacles().includes(preview), 'touching the warning must count before the figure spawns');
   }
-  assert(game.obstacles().includes(preview), 'the warned figure must join the arena once the player is clear');
 }
 
 let maxDepth = 0;
