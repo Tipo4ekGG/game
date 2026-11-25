@@ -8,7 +8,7 @@ const input = require('../input.js');
 const source = readFileSync(require.resolve('../game.js'), 'utf8');
 
 // Run the real game loop against controlled input, time, storage and viewport size.
-function launch(settings = {}, dimensions = {width: 1000, height: 600}, seed = 1, storage = new Map(), reducedMotion = false) {
+function launch(settings = {}, dimensions = {width: 1000, height: 600}, seed = 1, storage = new Map(), reducedMotion = false, audio) {
   const elements = new Map(), windowEvents = new Map();
   let pendingFrame, resize, engine, latestShape, fixedRandom, draws = 0;
   const context = new Proxy({
@@ -43,6 +43,7 @@ function launch(settings = {}, dimensions = {width: 1000, height: 600}, seed = 1
   };
   const window = {
     Matter, GameGeometry: geometry, BounceInput: input,
+    BounceAudio: audio && { create: () => audio },
     BouncePhysics: {
       ...physics,
       createEngine(matter) { engine = physics.createEngine(matter); return engine; },
@@ -81,6 +82,40 @@ function launch(settings = {}, dimensions = {width: 1000, height: 600}, seed = 1
 
 const oneCircle = {count: 1, types: [0], player: 'dot', progression: false};
 const {Body, Collision} = Matter;
+
+{
+  const cues = [], bounces = [];
+  const audio = {
+    unlock() {}, silence() { cues.push('silence'); },
+    setEnabled(value) { cues.push(value); },
+    play(name) { cues.push(name); },
+    bounce(...args) { bounces.push(args); }
+  };
+  const game = launch({...oneCircle,lossAnimation:true}, undefined, 1, undefined, false, audio);
+  assert.deepEqual(cues, [true], 'the intro must be quiet, including with legacy settings');
+  game.startWithMouse();
+  assert.deepEqual(cues, [true,'silence','start']);
+  const [body] = game.obstacles();
+  Body.setPosition(body, {x: body.circleRadius + 1, y: 140});
+  Body.setVelocity(body, {x: -2.5, y: 0});
+  game.frame(0);
+  game.frame(30);
+  assert.equal(bounces.length, 1, 'one physical wall bounce must emit one sound');
+  assert.equal(bounces[0][3], true);
+  assert(bounces[0][2] < 0, 'the left wall must pan left');
+  game.get('canvas').dispatch('pointermove', {pointerType:'mouse', clientX:-2, clientY:300});
+  assert.equal(cues.at(-1), 'charge');
+  game.frame(40);
+  game.frame(319);
+  assert.equal(cues.at(-1), 'charge', 'the explosion audio must wait for the animation');
+  game.frame(321);
+  assert.equal(cues.at(-1), 'blast');
+  game.frame(930);
+  assert.equal(cues.at(-1), 'record');
+  assert.equal(bounces.length, 1, 'the result background must stay quiet');
+  game.hostEvent('bounce:vk-hide');
+  assert.equal(cues.at(-1), 'silence', 'hiding the game must stop any audio tail');
+}
 
 {
   const game = launch({...oneCircle,lossAnimation:true});

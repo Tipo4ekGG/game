@@ -10,13 +10,14 @@
 <title>bounce — не касайся</title>
 <link rel="apple-touch-icon" href="./apple-touch-icon.png">
 <link rel="icon" href="./favicon.svg?v=4" type="image/svg+xml">
-<link rel="stylesheet" href="./style.css?v=16">
+<link rel="stylesheet" href="./style.css?v=17">
 <script defer src="./vk.js?v=1"></script>
 <script defer src="./vendor/matter.min.js"></script>
 <script defer src="./geometry.js?v=5"></script>
 <script defer src="./physics.js?v=4"></script>
 <script defer src="./input.js?v=9"></script>
-<script defer src="./game.js?v=16"></script>
+<script defer src="./audio.js?v=1"></script>
+<script defer src="./game.js?v=17"></script>
 </head>
 <body>
 <main class="game">
@@ -105,6 +106,7 @@
       </section>
       <section class="settings-effects" aria-labelledby="effects-title">
         <h3 id="effects-title">Эффекты</h3>
+        <label class="toggle"><input id="setting-sound" name="sound" type="checkbox" checked> Звуки игры</label>
         <label class="toggle"><input id="setting-loss-animation" name="lossAnimation" type="checkbox" aria-describedby="loss-animation-help"> Анимация проигрыша</label>
         <p class="setting-help" id="loss-animation-help">Вспышка и разлёт фигур.</p>
       </section>

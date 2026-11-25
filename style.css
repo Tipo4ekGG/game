@@ -29,6 +29,7 @@ dialog::backdrop{background:rgba(0,0,0,.78);backdrop-filter:blur(4px)}
 .settings-content h3{font-weight:600;font-size:16px;letter-spacing:-.01em;margin:0 0 16px}
 .settings-control{border-left:1px solid var(--line);padding-left:24px;min-width:0}
 .settings-effects{border-top:1px solid var(--line);margin-top:18px;padding-top:16px}
+.settings-effects .toggle+.toggle{margin-top:8px}
 .settings-group{margin-top:16px}
 .settings-content fieldset{margin:0 0 14px;padding:0;border:0;min-width:0}
 .settings-content legend{padding:0;margin-bottom:8px;font-size:13px;color:#c0c0c0}

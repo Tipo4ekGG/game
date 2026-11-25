@@ -12,7 +12,7 @@
     $('action').onclick=()=>location.reload();
     return;
   }
-  const defaults={count:8,speed:1,size:1,types:[0,1,2,3],player:'cursor',cursorScale:.75,showHitbox:false,lossAnimation:false,touchbar:false,padSensitivity:1,progression:true};
+  const defaults={count:8,speed:1,size:1,types:[0,1,2,3],player:'cursor',cursorScale:.75,showHitbox:false,lossAnimation:false,touchbar:false,padSensitivity:1,progression:true,sound:true};
   const clamp=(value,min,max)=>Math.max(min,Math.min(max,value));
   const numberSetting=(value,fallback,min,max,step)=>Number.isFinite(Number(value))?clamp(Math.round(Number(value)/step)*step,min,max):fallback;
   function sanitize(raw) {
@@ -24,7 +24,7 @@
       types:types.length?types:defaults.types.slice(),player:raw.player==='dot'?'dot':'cursor',
       cursorScale:numberSetting(raw.cursorScale,.75,.5,3,.25),showHitbox:raw.showHitbox===true,
       lossAnimation:raw.lossAnimation===true,touchbar:raw.touchbar===true,
-      padSensitivity:Number(padSensitivity.toFixed(1)),progression:raw.progression!==false
+      padSensitivity:Number(padSensitivity.toFixed(1)),progression:raw.progression!==false,sound:raw.sound!==false
     };
   }
   let settings={...defaults,types:defaults.types.slice()};
@@ -36,6 +36,8 @@
       if(legacy){legacy.cursorScale=(Number(legacy.cursorScale)||1)*.75;settings=sanitize(legacy);}
     }
   } catch {}
+  const sound=window.BounceAudio?.create();
+  sound?.setEnabled(settings.sound);
   const settingsDialog=$('settings-dialog'), settingsForm=$('settings-form');
   const physics=window.BouncePhysics,controls=window.BounceInput;
   const marker=$('player-marker'),touchbar=$('touchbar'),touchpad=$('touchpad');
@@ -77,15 +79,30 @@
     arena.classList.toggle('mouse-pickup',mousePickup);
     updateMarker();
   }
-  const {Engine,Bodies,Body,Composite}=Matter;
+  const {Engine,Bodies,Body,Composite,Events}=Matter;
   const engine=physics.createEngine(Matter);
   let W=1000,H=600,state='intro',shapes=[],walls=[],elapsed=0,best=0,nextSpawn=SPAWN_INTERVAL;
   let last=null,accumulator=0,warning=null,lastHud=-1;
   let player={x:W/2,y:H/2},trail=[],keys=new Map(),input='pointer';
   let directTouch=null;
+  let pendingBounce=null;
   const motionPreference=matchMedia('(prefers-reduced-motion: reduce)');
   let reducedMotion=motionPreference.matches;
   touchbar.hidden=!settings.touchbar;syncPlayerMode();
+  const panAt=x=>clamp((2*x/W-1)*.65,-.65,.65);
+  if(sound)Events.on(engine,'collisionStart',({pairs,delta})=>{
+    if(state!=='running'||!settings.sound||hostHidden||document.hidden)return;
+    for(const {collision} of pairs){
+      const {bodyA,bodyB,normal}=collision;
+      const vx=bodyB.velocity.x-bodyA.velocity.x;
+      const vy=bodyB.velocity.y-bodyA.velocity.y;
+      const speed=(vx*normal.x+vy*normal.y)*(1000/60)/delta;
+      if(speed<.65||speed<=(pendingBounce?.speed??0))continue;
+      const figure=bodyA.isStatic?bodyB:bodyA;
+      const contact=collision.supports[0]||figure.position;
+      pendingBounce={type:figure.gameType,speed,pan:panAt(contact.x),wall:bodyA.isStatic||bodyB.isStatic};
+    }
+  });
   function time(value) {
     const ticks=Math.floor(value*10+1e-7);
     return `${String(Math.floor(ticks/600)).padStart(2,'0')}:${String(Math.floor(ticks/10)%60).padStart(2,'0')}.${ticks%10}`;
@@ -225,6 +242,9 @@
   }
   function launch() {
     state='running';last=null;accumulator=0;trail=[];
+    sound?.silence();
+    sound?.unlock();
+    sound?.play('start');
     overlay.hidden=true;arena.classList.add('active');notice.textContent='';
     $('pause').disabled=false;$('pause').setAttribute('aria-label','Пауза');
     canvas.focus({preventScroll:true});syncPlayerMode();hud(true);requestPaint();
@@ -238,6 +258,7 @@
   }
   function pause(reason='Выбери «Продолжить», чтобы вернуться к попытке.') {
     if(state!=='running'&&state!=='armed')return;
+    sound?.silence();
     state='paused';keys.clear();directTouch=null;padPointer=null;padLast=null;mousePickup=false;
     syncPlayerMode();touchpad.classList.remove('pressed');
     overlay.hidden=false;arena.classList.remove('active');notice.textContent='';
@@ -260,6 +281,7 @@
     $('best').textContent=time(best);
     impact={...contact,record,startedAt:null,phase:0,blasted:false,particles:[]};
     player=contact.origin;
+    sound?.play(playsLossAnimation()?'charge':'impact',panAt(contact.point.x));
     state='impact';keys.clear();directTouch=null;padPointer=null;padLast=null;mousePickup=false;warning=null;
     syncPlayerMode();touchpad.classList.remove('pressed');arena.classList.remove('active');arena.classList.add('impact');
     $('pause').disabled=true;$('settings-open').disabled=true;notice.textContent='';hud(true);
@@ -277,6 +299,7 @@
     $('result').textContent=time(elapsed);$('result').hidden=false;
     impactPreview.hidden=false;drawImpactPreview();
     action.textContent='Играть снова';$('hint').hidden=true;
+    if(impact.record&&!document.hidden&&!hostHidden)sound?.play('record');
     if(!document.hidden&&canvas===document.activeElement)$('action').focus({preventScroll:true});
     hud(true);requestPaint();
   }
@@ -307,6 +330,7 @@
   }
   function emitBlast() {
     const center=impact.point;
+    sound?.play('blast',panAt(center.x));
     for(const body of shapes){
       const dx=body.position.x-center.x,dy=body.position.y-center.y;
       const distance=Math.hypot(dx,dy);
@@ -419,6 +443,7 @@
     if(playing&&warning&&elapsed+dt/1000>=warning.at&&!hits(start,end,warning.body)){
       // Solve contacts in this step so other figures never cancel a scheduled arrival.
       addShape(warning.body);
+      sound?.play('spawn',panAt(warning.body.position.x));
       warning=null;nextSpawn=elapsed+dt/1000+SPAWN_INTERVAL;
     }
     const playerExtent=settings.player==='dot'?RADIUS:22*worldPerPixel*settings.cursorScale;
@@ -657,6 +682,11 @@
         accumulator-=STEP;
       }
     } else {last=null;accumulator=0;}
+    if(pendingBounce&&state==='running'){
+      const {type,speed,pan,wall}=pendingBounce;
+      sound?.bounce(type,speed,pan,wall);
+    }
+    pendingBounce=null;
     hud();draw();updateMarker();
     if(isAnimating()||state==='impact')requestPaint();
   }
@@ -756,8 +786,18 @@
     }
   });
   window.addEventListener('keyup',event=>keys.delete(controls.keyIdentity(event)));
-  window.addEventListener('blur',()=>pause('Вкладка потеряла фокус. Игра ждёт тебя.'));
+  // Touch can start the round on press, before the browser allows audio on release.
+  function unlockTouchSound(){
+    if(!hostHidden&&!document.hidden&&state==='running')sound?.unlock();
+  }
+  window.addEventListener('pointerup',unlockTouchSound,{capture:true,passive:true});
+  window.addEventListener('touchend',unlockTouchSound,{capture:true,passive:true});
+  window.addEventListener('blur',()=>{
+    sound?.silence();
+    pause('Вкладка потеряла фокус. Игра ждёт тебя.');
+  });
   function suspend(reason) {
+    sound?.silence();
     last=null;accumulator=0;
     if(state==='impact')finishImpact();
     else pause(reason);
@@ -814,6 +854,7 @@
     if(state==='running'||state==='armed')pause('Настрой поле и начни новую попытку или закрой настройки, чтобы продолжить.');
     $('setting-count').value=settings.count;$('setting-speed').value=settings.speed;$('setting-size').value=settings.size;
     $('setting-cursor-scale').value=settings.cursorScale;$('setting-hitbox').checked=settings.showHitbox;
+    $('setting-sound').checked=settings.sound;
     $('setting-loss-animation').checked=settings.lossAnimation;
     $('setting-touchbar').checked=settings.touchbar;
     $('setting-pad-sensitivity').value=settings.padSensitivity;
@@ -840,8 +881,9 @@
       player:settingsForm.elements.player.value,cursorScale:$('setting-cursor-scale').value,
       showHitbox:$('setting-hitbox').checked,lossAnimation:$('setting-loss-animation').checked,
       touchbar:$('setting-touchbar').checked,padSensitivity:$('setting-pad-sensitivity').value,
-      progression:$('setting-progression').checked
+      progression:$('setting-progression').checked,sound:$('setting-sound').checked
     });
+    sound?.setEnabled(settings.sound);
     try {localStorage.setItem(SETTINGS_KEY,JSON.stringify(settings));}catch {}
     touchbar.hidden=!settings.touchbar;settingsDialog.close();state='intro';layout();showIntro();action.focus({preventScroll:true});
   });
