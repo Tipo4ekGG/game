@@ -10,14 +10,14 @@
 <title>bounce — не касайся</title>
 <link rel="apple-touch-icon" href="./apple-touch-icon.png">
 <link rel="icon" href="./favicon.svg?v=4" type="image/svg+xml">
-<link rel="stylesheet" href="./style.css?v=17">
+<link rel="stylesheet" href="./style.css?v=18">
 <script defer src="./vk.js?v=1"></script>
 <script defer src="./vendor/matter.min.js"></script>
 <script defer src="./geometry.js?v=5"></script>
 <script defer src="./physics.js?v=4"></script>
 <script defer src="./input.js?v=9"></script>
-<script defer src="./audio.js?v=1"></script>
-<script defer src="./game.js?v=17"></script>
+<script defer src="./audio.js?v=2"></script>
+<script defer src="./game.js?v=18"></script>
 </head>
 <body>
 <main class="game">
@@ -107,6 +107,8 @@
       <section class="settings-effects" aria-labelledby="effects-title">
         <h3 id="effects-title">Эффекты</h3>
         <label class="toggle"><input id="setting-sound" name="sound" type="checkbox" checked> Звуки игры</label>
+        <label class="range-label" for="setting-volume">Громкость <output aria-hidden="true" id="volume-output" for="setting-volume">100%</output></label>
+        <input id="setting-volume" name="volume" type="range" min="0" max="100" step="1" value="100" aria-valuetext="100%">
         <label class="toggle"><input id="setting-loss-animation" name="lossAnimation" type="checkbox" aria-describedby="loss-animation-help"> Анимация проигрыша</label>
         <p class="setting-help" id="loss-animation-help">Вспышка и разлёт фигур.</p>
       </section>

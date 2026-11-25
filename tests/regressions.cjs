@@ -85,14 +85,17 @@ const {Body, Collision} = Matter;
 
 {
   const cues = [], bounces = [];
+  let volume;
   const audio = {
     unlock() {}, silence() { cues.push('silence'); },
     setEnabled(value) { cues.push(value); },
+    setVolume(value) { volume = value; },
     play(name) { cues.push(name); },
     bounce(...args) { bounces.push(args); }
   };
   const game = launch({...oneCircle,lossAnimation:true}, undefined, 1, undefined, false, audio);
   assert.deepEqual(cues, [true], 'the intro must be quiet, including with legacy settings');
+  assert.equal(volume, 1, 'saved settings from before the slider must keep the existing sound level');
   game.startWithMouse();
   assert.deepEqual(cues, [true,'silence','start']);
   const [body] = game.obstacles();
@@ -115,6 +118,8 @@ const {Body, Collision} = Matter;
   assert.equal(bounces.length, 1, 'the result background must stay quiet');
   game.hostEvent('bounce:vk-hide');
   assert.equal(cues.at(-1), 'silence', 'hiding the game must stop any audio tail');
+  launch({...oneCircle,volume:0}, undefined, 1, undefined, false, audio);
+  assert.equal(volume, 0, 'zero volume must survive loading saved settings');
 }
 
 {

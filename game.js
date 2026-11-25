@@ -12,7 +12,7 @@
     $('action').onclick=()=>location.reload();
     return;
   }
-  const defaults={count:8,speed:1,size:1,types:[0,1,2,3],player:'cursor',cursorScale:.75,showHitbox:false,lossAnimation:false,touchbar:false,padSensitivity:1,progression:true,sound:true};
+  const defaults={count:8,speed:1,size:1,types:[0,1,2,3],player:'cursor',cursorScale:.75,showHitbox:false,lossAnimation:false,touchbar:false,padSensitivity:1,progression:true,sound:true,volume:100};
   const clamp=(value,min,max)=>Math.max(min,Math.min(max,value));
   const numberSetting=(value,fallback,min,max,step)=>Number.isFinite(Number(value))?clamp(Math.round(Number(value)/step)*step,min,max):fallback;
   function sanitize(raw) {
@@ -24,7 +24,8 @@
       types:types.length?types:defaults.types.slice(),player:raw.player==='dot'?'dot':'cursor',
       cursorScale:numberSetting(raw.cursorScale,.75,.5,3,.25),showHitbox:raw.showHitbox===true,
       lossAnimation:raw.lossAnimation===true,touchbar:raw.touchbar===true,
-      padSensitivity:Number(padSensitivity.toFixed(1)),progression:raw.progression!==false,sound:raw.sound!==false
+      padSensitivity:Number(padSensitivity.toFixed(1)),progression:raw.progression!==false,sound:raw.sound!==false,
+      volume:numberSetting(raw.volume??defaults.volume,defaults.volume,0,100,1)
     };
   }
   let settings={...defaults,types:defaults.types.slice()};
@@ -38,6 +39,7 @@
   } catch {}
   const sound=window.BounceAudio?.create();
   sound?.setEnabled(settings.sound);
+  sound?.setVolume(settings.volume/100);
   const settingsDialog=$('settings-dialog'), settingsForm=$('settings-form');
   const physics=window.BouncePhysics,controls=window.BounceInput;
   const marker=$('player-marker'),touchbar=$('touchbar'),touchpad=$('touchpad');
@@ -91,7 +93,7 @@
   touchbar.hidden=!settings.touchbar;syncPlayerMode();
   const panAt=x=>clamp((2*x/W-1)*.65,-.65,.65);
   if(sound)Events.on(engine,'collisionStart',({pairs,delta})=>{
-    if(state!=='running'||!settings.sound||hostHidden||document.hidden)return;
+    if(state!=='running'||!settings.sound||settings.volume===0||hostHidden||document.hidden)return;
     for(const {collision} of pairs){
       const {bodyA,bodyB,normal}=collision;
       const vx=bodyB.velocity.x-bodyA.velocity.x;
@@ -840,9 +842,9 @@
   }
   touchpad.addEventListener('pointerup',releasePad);touchpad.addEventListener('pointercancel',releasePad);touchpad.addEventListener('lostpointercapture',releasePad);
   function updateForm() {
-    for(const name of ['count','speed','size','cursor-scale','pad-sensitivity']) {
+    for(const [name,unit] of [['count',''],['speed','×'],['size','×'],['cursor-scale','×'],['pad-sensitivity','×'],['volume','%']]) {
       const range=$('setting-'+name);
-      const value=range.value.replace('.',',')+(name==='count'?'':'×');
+      const value=range.value.replace('.',',')+unit;
       $(name+'-output').value=value;
       range.setAttribute('aria-valuetext',value);
     }
@@ -855,6 +857,7 @@
     $('setting-count').value=settings.count;$('setting-speed').value=settings.speed;$('setting-size').value=settings.size;
     $('setting-cursor-scale').value=settings.cursorScale;$('setting-hitbox').checked=settings.showHitbox;
     $('setting-sound').checked=settings.sound;
+    $('setting-volume').value=settings.volume;
     $('setting-loss-animation').checked=settings.lossAnimation;
     $('setting-touchbar').checked=settings.touchbar;
     $('setting-pad-sensitivity').value=settings.padSensitivity;
@@ -881,9 +884,10 @@
       player:settingsForm.elements.player.value,cursorScale:$('setting-cursor-scale').value,
       showHitbox:$('setting-hitbox').checked,lossAnimation:$('setting-loss-animation').checked,
       touchbar:$('setting-touchbar').checked,padSensitivity:$('setting-pad-sensitivity').value,
-      progression:$('setting-progression').checked,sound:$('setting-sound').checked
+      progression:$('setting-progression').checked,sound:$('setting-sound').checked,volume:$('setting-volume').value
     });
     sound?.setEnabled(settings.sound);
+    sound?.setVolume(settings.volume/100);
     try {localStorage.setItem(SETTINGS_KEY,JSON.stringify(settings));}catch {}
     touchbar.hidden=!settings.touchbar;settingsDialog.close();state='intro';layout();showIntro();action.focus({preventScroll:true});
   });

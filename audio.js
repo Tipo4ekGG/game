@@ -35,9 +35,11 @@
     ],
   };
 
-  function createMixer(context) {
+  function createMixer(context, volume = 1) {
     const output = context.createGain();
     output.gain.value = .64;
+    const master = context.createGain();
+    master.gain.value = volume;
     const compressor = context.createDynamicsCompressor();
     compressor.threshold.value = -14;
     compressor.knee.value = 12;
@@ -45,7 +47,8 @@
     compressor.attack.value = .004;
     compressor.release.value = .10;
     output.connect(compressor);
-    compressor.connect(context.destination);
+    compressor.connect(master);
+    master.connect(context.destination);
 
     // Each noise layer uses a fresh slice so rapid impacts do not sound identical.
     const noise = context.createBuffer(1, context.sampleRate, context.sampleRate);
@@ -138,15 +141,23 @@
       lastBounce = -Infinity;
     }
 
-    return {play, bounce, silence};
+    function setVolume(value) {
+      const now = context.currentTime;
+      master.gain.cancelScheduledValues(now);
+      master.gain.setTargetAtTime(value, now, .012);
+    }
+
+    return {play, bounce, silence, setVolume};
   }
 
   function create() {
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     let context, mixer, pendingStart;
     let enabled = true;
+    let volume = 1;
     let unavailable = !AudioContext;
-    const ready = () => enabled && mixer && context.state === 'running';
+    const audible = () => enabled && volume > 0 && !unavailable;
+    const ready = () => audible() && mixer && context.state === 'running';
 
     function flushStart() {
       if (!ready() || pendingStart === undefined) return;
@@ -154,13 +165,13 @@
       pendingStart = undefined;
     }
     function unlock() {
-      if (!enabled || unavailable) return;
+      if (!audible()) return;
       if (ready()) { flushStart(); return; }
       if (navigator.userActivation?.isActive === false) return;
       if (!context) {
         try {
           context = new AudioContext({latencyHint: 'interactive'});
-          mixer = createMixer(context);
+          mixer = createMixer(context, volume);
         } catch {
           unavailable = true;
           return;
@@ -176,11 +187,16 @@
       enabled = value;
       if (!value) silence();
     }
+    function setVolume(value) {
+      volume = value;
+      mixer?.setVolume(value);
+      if (value === 0) silence();
+    }
     return {
-      unlock, setEnabled, silence,
+      unlock, setEnabled, setVolume, silence,
       play(name, pan = 0) {
         if (ready()) mixer.play(name, pan);
-        else if (enabled && !unavailable && name === 'start') pendingStart = performance.now();
+        else if (audible() && name === 'start') pendingStart = performance.now();
       },
       bounce(type, speed, pan, wall) {
         if (ready()) mixer.bounce(type, speed, pan, wall);
